@@ -19,4 +19,12 @@ public final class Anchors {
      * 所以锚定命中后必须再用方法名/参数消歧（见 DexKitLocator 的两次尝试）。
      */
     public static final String STR_SPLASH_REQ_NO_SEND = "不发送请求";
+
+    /**
+     * 营销图文消息素材下载任务 La8;->run()V 的特征字符串（dexsql method_strings 实测）：
+     * "invalid download item: " 是该 Runnable 独有的失败日志，配合类名串
+     * "ImageTextMessageDownloader" 与 void()V 签名可唯一消歧。
+     */
+    public static final String STR_IMAGE_TEXT_DL = "invalid download item: ";
+    public static final String STR_IMAGE_TEXT_DL_CLASS = "ImageTextMessageDownloader";
 }

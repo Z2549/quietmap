@@ -14,7 +14,7 @@ import io.github.libxposed.service.XposedService;
 /**
  * 设置页。界面结构照 LSPosed 管理器：
  * 顶部状态卡（LSPosed 连接 / remote prefs 可用性 / 模块版本）
- * + 九个净化开关（默认开）
+ * + 十六个净化开关（默认开）
  * + 诊断卡（registered / hit N / skip，数据由目标进程经 ReportProvider 回传）
  * + 页脚（兼容版本声明）。
  */

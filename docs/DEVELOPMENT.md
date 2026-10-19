@@ -26,7 +26,8 @@ app/src/main/java/com/quietmap/app/
     └── SplashGateHooks / SplashRequestHooks / SplashShakeHooks /
         BgMsgFetchHooks / BgAwakenReportHooks / BgAfcTaokeHooks /
         BgUtdidUploadHooks / H5InstallApkHooks / PopupUpgradeHooks /
-        HomeBannerHooks / HomeOperateBarHooks / HomeMsgFilterHooks
+        HomeBannerHooks / HomeOperateBarHooks / HomeMsgFilterHooks /
+        SearchHotwordHooks / H5AdLogHooks / FloatLayerHooks / MsgImageTextHooks
 app/src/main/resources/META-INF/xposed/   模块声明三件套
 app/src/test/java/com/quietmap/app/        纯 JVM 单测（Feature 映射 / 开关矩阵）
 tools/check-mounts.sh                     挂载点体检（dexsql）
@@ -57,9 +58,9 @@ compileSdk 只能用 36（已实测 36 可用；需要 37 时先把安装目录�
 ./gradlew test
 ```
 
-覆盖两块：`FeatureTest`（十二个开关 key ↔ 编译期默认值映射，key 一旦改动会断掉用户已存的
-开关状态，测试锁死它）、`HookSwitchMatrixTest`（十二个钩子开关矩阵：每开关独立、全开、全关，
-含批 2 三个开屏键与批 3 三个首页键的独立项）。
+覆盖两块：`FeatureTest`（十六个开关 key ↔ 编译期默认值映射，key 一旦改动会断掉用户已存的
+开关状态，测试锁死它）、`HookSwitchMatrixTest`（十六个钩子开关矩阵：每开关独立、全开、全关，
+含批 2 三个开屏键、批 3 三个首页键与批 4 四个搜索/推广键的独立项）。
 
 ## 挂载点体检
 
@@ -79,7 +80,7 @@ bash tools/check-mounts.sh "E:\download\base(5).apk"
 
 混淆类挂载点（`Lze5#attemptRequestData`）额外按方法体字符串锚点复核：签名在但
 `"不发送请求"` 锚点串丢了也判 `SIG`（运行时 DexKit 会定位失败），输出带 `[锚点OK]` 标记。
-末尾汇总 OK/SIG/GONE 计数（批 3 后共 30 项）。SIG/GONE 的项要先用 dexsql 重新定位：
+末尾汇总 OK/SIG/GONE 计数（批 4 后共 38 项）。SIG/GONE 的项要先用 dexsql 重新定位：
 
 ```bash
 E:/tools/dexsql/dexsql.exe query --input <apk> \
@@ -176,8 +177,10 @@ gh release create 1-0.1.0 quietmap-0.1.0.apk --title "0.1.0" --notes "<更新说
 
 仅保证高德 17.01.0.2012，其它版本尽力而为。挂载点绝大多数是非混淆类（`com.autonavi.*`
 业务包 / 淘宝、支付宝 SDK 包），升级后大概率仍在，但签名可能变——先跑
-`tools/check-mounts.sh` 再说。混淆挂载点有两个：`Lze5#attemptRequestData` 由 DexKit
-字符串锚定兜底；批 3 的 `Llt1#IDeliveryDisplay.start`（IDeliveryDisplay 实现类）
+`tools/check-mounts.sh` 再说。混淆挂载点有三个：`Lze5#attemptRequestData` 与
+批 4 的 `La8#run`（图文素材下载任务）由 DexKit 字符串锚定兜底，锚点分别是
+`"不发送请求"` 与 `"invalid download item: " + "ImageTextMessageDownloader"`；
+批 3 的 `Llt1#IDeliveryDisplay.start`（IDeliveryDisplay 实现类）
 目前按类名直挂，升级后若类名变化会记 skip（fail-open，不影响其余钩子），
 重新定位方法是用 dexsql `class_interfaces` 按接口
 `Lcom/autonavi/minimap/bundle/msgbox/mainmap/IDeliveryDisplay;` 反查新实现类。
@@ -191,6 +194,67 @@ gh release create 1-0.1.0 quietmap-0.1.0.apk --title "0.1.0" --notes "<更新说
 报告注明。同理，调试中也不要把它们的产物放进本仓库。
 
 ## 变更记录
+
+### 批 4（v0.4.0）搜索热词 + H5 广告监测 + 地图浮层 + 图文消息素材
+
+四个新开关（默认全开），共 8 个挂载点（check-mounts 总数 30 → 38）：
+
+| 开关 | 挂载点 | 动作 |
+|---|---|---|
+| `search_hotword` | `BaseSearchBar#requestPreSetWord(Z,String)` | 不调用（热词请求入口） |
+| `search_hotword` | `PreSetWordManager#d(n55)` | 不调用（本地热词计数） |
+| `search_hotword` | `PreSetWordManager#e(String,n55)` | 不调用（天擎曝光上报） |
+| `search_hotword` | `ModuleSlideContainer#responsePreSetWords(String)` | 不调用（AJX 回填，第二道保险） |
+| `h5_ad_log` | `AlimamaRequestHolder#sendH5Log` 2 参 + 3 参重载 | 不调用（H5 点击/曝光监测断源） |
+| `map_float_layer` | `FloatingLayerManager#a(String,String,JSONObject,b)` | return `""`（不注册浮层） |
+| `msg_image_text` | `La8;->run()V`（混淆下载任务） | 不调用（图文素材下载断源） |
+
+dexsql 复核与任务清单的出入（一律以 dexsql 为准）：
+
+1. `BaseSearchBar#requestPreSetWord` 实测只有 **1 个**重载 `(Z,String)V`，与清单一致。
+   方法体把 sceneData 交给 AJX/JS，真正的热词请求在前端发起。
+2. `PreSetWordManager` 实测方法：`a(String)Z`（本地限额）、`b()`（单例）、
+   `c(JSONObject)String`（构造 sceneData）、`d(n55)V`（本地计数）、
+   `e(String,n55)V`（天擎曝光上报）。网络回调类 `$a`、`$2`、`$3` 均存在，
+   `$b` 是本地 prefs 持有者；`n55` 是默认包混淆类（描述符 `Ln55;`）。
+3. `sendH5Log` 实测 **2 个**重载（清单只写 2 参）：
+   `(H5LogRequest,AosResponseCallback)` 与
+   `(H5LogRequest,com.autonavi.minimap.falcon.base.a,AosResponseCallback)`，两条全挂。
+4. `FloatingLayerManager#a` 签名与清单完全一致；`d()` 单例确认存在但**不 hook**
+   （调用点会立即解引用，返回 null 必 NPE）。返回常量取 `""`：调用点
+   `floatinglayer/b#f` 把返回值 `JSONObject.put("key", result)` 后 `callJs`，
+   `org.json` 的 `put(name, null)` 会删除键，返回 `""` 保持键存在；
+   另一个调用点 `AppBackManager$2#a` 完全忽略返回值。
+5. `ImageTextMessageDownloader` 实测只有静态 `a(File)Z`（递归删除缓存），
+   **不是下载入口**。真正的入口是混淆 Runnable `La8;->run()V`（方法体含
+   `ImageTextMessageDownloader`、`start`、`invalid download item: `），
+   构造 `DownloadRequest` + `FinishCallback` 后调 `IHttpService.download`。
+   与批 2 的 `Lze5` 同样用 DexKit 字符串锚定（`invalid download item: ` +
+   `ImageTextMessageDownloader`，void()V 签名强校验），兜底类名 `a8`。
+6. `ModuleSlideContainer#responsePreSetWords(String)` 存在（实体子类覆写抽象基类
+   `AbstractModuleSlidecontainer` 的同名方法），Java 侧无调用点，由 AJX bridge
+   反射调用；作为热词第二道保险一起断。
+
+红线：本批**不动** `ISearchService.sugg`（联想词），搜索输入体验保持原样；
+不动 `g.o` / `SplashFrequencyController` / AJX 模板类。
+
+模拟器实测（quietmap-test / Android 15 x86_64 + berberis，高德 17.01.0.2012）：
+
+- 冷启动 2 次（最终版）：每个进程 38 个挂载点全部 `registered`（主进程 38 条），
+  `skip: ` 计数 0，无高德 Java FATAL。16 个 featureId 全部出现在诊断卡。
+- `search_hotword hit BaseSearchBar#requestPreSetWord` 实测命中（首页刷新与进入
+  搜索页各命中）；`h5_ad_log` / `map_float_layer` / `msg_image_text` 本环境无
+  对应广告数据下发，`registered` 待命中观察（未伪造 hit）。
+- 首页搜索框 placeholder 为普通提示词「查找地点、公交、地铁」，无轮播热词。
+- 地图缩放/平移正常；首页无运营浮层挂件（与 vanilla 对照一致）。
+- 搜索页在本模拟器上打开后为空白（顶部两个白卡、其余灰底）。**对照实验**：
+  关闭 `search_hotword` 后重启高德，搜索页同样空白 —— 与模块无关。
+  根因是模拟器无外网（host 有网，但 guest 出站 TCP 超时、DNS 可达），
+  该 AJX 页面无法完成资源加载；因此联想词(sugg)的交互回归无法在本环境验证，
+  只能从代码层确认未 hook `ISearchService.sugg`。换有网环境需复测搜索页。
+- 截图与日志：`E:\tmp-amap-hook\batch4-final-home.png`、
+  `batch4-search-final.png`、`batch4-map-zoom-pan.png`、
+  `batch4-final-logcat.txt`。
 
 ### 批 3（v0.3.0）首页营销三件套 + 红点体系
 

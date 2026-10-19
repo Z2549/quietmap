@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 挂载点体检：高德升级后跑这个，30 秒内知道十二个钩子的挂载点还活着几个。
+# 挂载点体检：高德升级后跑这个，30 秒内知道十六个钩子的挂载点还活着几个。
 #
 # 用法（Git Bash）：
 #   bash tools/check-mounts.sh [apk路径] [缓存输出目录]
@@ -18,7 +18,7 @@
 #
 # 挂载点清单与 app/src/main/java/com/quietmap/app/hooks/ 下的常量一一对应，
 # 完整签名取自 dexsql 对高德 17.01.0.2012 的实测。
-# 混淆类挂载点（Lze5#attemptRequestData）另有方法体字符串锚点监控：
+# 混淆类挂载点（Lze5#attemptRequestData、La8#run）另有方法体字符串锚点监控：
 # 签名在但锚点串丢了也判 SIG（运行时 DexKit 按锚点定位会失败）。
 
 set -u
@@ -91,7 +91,15 @@ Lcom/autonavi/minimap/bundle/msgbox/util/MessageBoxManager;->getMessages(Lcom/au
 Lcom/autonavi/minimap/bundle/msgbox/util/MessageBoxManager;->retrieveRemoteMessages(Ljava/util/Set;Ljava/lang/String;)V|home_msg_filter 远程营销消息拉取
 Llt1;->start(Landroid/app/Activity;Lcom/autonavi/minimap/bundle/msgbox/entity/AmapMessage;)V|home_msg_filter 主图投放(接口IDeliveryDisplay实现类,混淆类)
 Lcom/amap/bundle/badgesystem/ajxmodule/AjxModuleBadge;->updateAppBadge(Ljava/lang/String;I)V|home_msg_filter 角标红点更新
-Lcom/amap/bundle/badgesystem/ajxmodule/AjxModuleBadge;->setBadgeDisplay(Ljava/lang/String;Z)V|home_msg_filter 角标显示(强制false)'
+Lcom/amap/bundle/badgesystem/ajxmodule/AjxModuleBadge;->setBadgeDisplay(Ljava/lang/String;Z)V|home_msg_filter 角标显示(强制false)
+Lcom/autonavi/bundle/amaphome/components/searchbar/BaseSearchBar;->requestPreSetWord(ZLjava/lang/String;)V|search_hotword 搜索框热词请求(唯一重载)
+Lcom/autonavi/bundle/uitemplate/preset/PreSetWordManager;->d(Ln55;)V|search_hotword 热词本地计数
+Lcom/autonavi/bundle/uitemplate/preset/PreSetWordManager;->e(Ljava/lang/String;Ln55;)V|search_hotword 热词天擎曝光上报
+Lcom/autonavi/bundle/uitemplate/ajx/ModuleSlideContainer;->responsePreSetWords(Ljava/lang/String;)V|search_hotword AJX热词回填(第二道保险)
+Lcom/autonavi/minimap/alimama/AlimamaRequestHolder;->sendH5Log(Lcom/autonavi/minimap/alimama/param/H5LogRequest;Lcom/amap/bundle/aosservice/response/AosResponseCallback;)V|h5_ad_log H5广告监测(2参重载)
+Lcom/autonavi/minimap/alimama/AlimamaRequestHolder;->sendH5Log(Lcom/autonavi/minimap/alimama/param/H5LogRequest;Lcom/autonavi/minimap/falcon/base/a;Lcom/amap/bundle/aosservice/response/AosResponseCallback;)V|h5_ad_log H5广告监测(3参重载)
+Lcom/autonavi/minimap/basemap/floatinglayer/FloatingLayerManager;->a(Ljava/lang/String;Ljava/lang/String;Lorg/json/JSONObject;Lcom/autonavi/minimap/basemap/floatinglayer/FloatingLayerManager$b;)Ljava/lang/String;|map_float_layer 运营浮层注册(返回"")
+La8;->run()V|msg_image_text 图文素材下载任务(混淆类,字符串锚定,SIG监控)'
 
 echo
 echo "APK: $APK"
@@ -132,6 +140,15 @@ while IFS='|' read -r full feat; do
       fi
       anchor_note=" [锚点OK]"
       ;;
+    'La8;->run()V')
+      anchor_hit=$(count "SELECT count(*) FROM method_strings WHERE method='$full' AND value LIKE '%invalid download item:%'")
+      if [ "${anchor_hit:-0}" = "0" ]; then
+        printf '%-8s %-78s %s\n' "SIG" "${full#*->}  (锚点字符串丢失,需换锚)" "$feat"
+        sig=$((sig + 1))
+        continue
+      fi
+      anchor_note=" [锚点OK]"
+      ;;
   esac
   printf '%-8s %-78s %s\n' "OK" "${full#*->}$anchor_note" "$feat"
   ok=$((ok + 1))
@@ -143,7 +160,7 @@ total=$((ok + sig + gone))
 echo
 echo "汇总: 共 $total 项 — OK $ok / SIG $sig / GONE $gone"
 if [ "$sig" -eq 0 ] && [ "$gone" -eq 0 ]; then
-  echo "十二钩子挂载点全部存活。"
+  echo "十六钩子挂载点全部存活。"
 else
   echo "OK=还在；SIG=类在但签名/锚点变了；GONE=类没了。变的项要重新用 dexsql 定位。"
 fi

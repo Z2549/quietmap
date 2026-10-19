@@ -27,7 +27,11 @@ public class FeatureTest {
             "popup_upgrade",
             "home_banner",
             "home_operate_bar",
-            "home_msg_filter"
+            "home_msg_filter",
+            "search_hotword",
+            "h5_ad_log",
+            "map_float_layer",
+            "msg_image_text"
     ));
 
     @Test

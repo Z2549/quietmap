@@ -81,6 +81,18 @@ public final class Hooks {
                 case HOME_MSG_FILTER:
                     HomeMsgFilterHooks.install(module, cl);
                     break;
+                case SEARCH_HOTWORD:
+                    SearchHotwordHooks.install(module, cl);
+                    break;
+                case H5_AD_LOG:
+                    H5AdLogHooks.install(module, cl);
+                    break;
+                case MAP_FLOAT_LAYER:
+                    FloatLayerHooks.install(module, cl);
+                    break;
+                case MSG_IMAGE_TEXT:
+                    MsgImageTextHooks.install(module, cl);
+                    break;
                 default:
                     break;
             }

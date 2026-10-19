@@ -4,7 +4,7 @@ package com.quietmap.app;
  * 功能清单。key 同时是模块 App 内 remote prefs 的键，也是目标进程
  * getRemotePreferences("config") 的键，两处必须一致；日志里的 featureId 也用它。
  *
- * 十二个开关全部默认开启：模块定位是「装上即净」，用户只在个别场景关掉单项。
+ * 十六个开关全部默认开启：模块定位是「装上即净」，用户只在个别场景关掉单项。
  * 枚举顺序 = hook 安装顺序：开屏三键放最前（启动路径最敏感，尽早落钩），
  * 批 3 首页三键放最后（首页路径，不参与启动链路）。
  */
@@ -38,7 +38,15 @@ public enum Feature {
      * IDeliveryDisplay#start 不调用（主图投放）、updateAppBadge 不调用 +
      * setBadgeDisplay 强制 false（角标红点）。
      */
-    HOME_MSG_FILTER("home_msg_filter", R.string.f_home_msg_filter_title, R.string.f_home_msg_filter_summary);
+    HOME_MSG_FILTER("home_msg_filter", R.string.f_home_msg_filter_title, R.string.f_home_msg_filter_summary),
+    /** 搜索热词断源（requestPreSetWord + PreSetWordManager e/d + AJX 回填，不动 sugg）。 */
+    SEARCH_HOTWORD("search_hotword", R.string.f_search_hotword_title, R.string.f_search_hotword_summary),
+    /** H5 广告点击/曝光监测断源（AlimamaRequestHolder#sendH5Log 全重载）。 */
+    H5_AD_LOG("h5_ad_log", R.string.f_h5_ad_log_title, R.string.f_h5_ad_log_summary),
+    /** 地图运营浮层断源（FloatingLayerManager#a 返回空串，不注册浮层）。 */
+    MAP_FLOAT_LAYER("map_float_layer", R.string.f_map_float_layer_title, R.string.f_map_float_layer_summary),
+    /** 营销图文消息素材下载断源（ImageTextMessageDownloader 下载任务不执行）。 */
+    MSG_IMAGE_TEXT("msg_image_text", R.string.f_msg_image_text_title, R.string.f_msg_image_text_summary);
 
     public final String key;
     public final int titleRes;

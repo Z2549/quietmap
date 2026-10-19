@@ -26,6 +26,7 @@
     <string name="group_data">数据层断源</string>
     <string name="group_ui">界面</string>
     <string name="group_home">首页净化</string>
+    <string name="group_search_promo">搜索与推广净化</string>
 
     <!-- 诊断卡 -->
     <string name="diag_title">诊断</string>
@@ -59,4 +60,12 @@
     <string name="f_home_operate_bar_summary">不展示首页运营活动条与地图消息气泡</string>
     <string name="f_home_msg_filter_title">首页消息红点净化</string>
     <string name="f_home_msg_filter_summary">数据层断源：不拉远程营销消息、不投主图、清角标红点。关闭本项可恢复消息列表拉取</string>
+    <string name="f_search_hotword_title">搜索热词净化</string>
+    <string name="f_search_hotword_summary">搜索框回退普通提示词，不请求、不展示轮播热词（不影响输入联想）</string>
+    <string name="f_h5_ad_log_title">H5 广告监测断源</string>
+    <string name="f_h5_ad_log_summary">阻断 H5 页面广告的点击与曝光上报</string>
+    <string name="f_map_float_layer_title">地图浮层净化</string>
+    <string name="f_map_float_layer_summary">不注册首页地图上的运营浮层挂件</string>
+    <string name="f_msg_image_text_title">图文消息素材断源</string>
+    <string name="f_msg_image_text_summary">不下载营销图文消息的图片与素材</string>
 </resources>

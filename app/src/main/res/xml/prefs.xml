@@ -75,6 +75,26 @@
 
     </PreferenceCategory>
 
+    <PreferenceCategory android:title="@string/group_search_promo">
+
+        <com.quietmap.app.MaterialSwitchPreference
+            android:icon="@drawable/ic_content"
+            android:key="search_hotword" />
+
+        <com.quietmap.app.MaterialSwitchPreference
+            android:icon="@drawable/ic_ads"
+            android:key="h5_ad_log" />
+
+        <com.quietmap.app.MaterialSwitchPreference
+            android:icon="@drawable/ic_ui"
+            android:key="map_float_layer" />
+
+        <com.quietmap.app.MaterialSwitchPreference
+            android:icon="@drawable/ic_content"
+            android:key="msg_image_text" />
+
+    </PreferenceCategory>
+
     <Preference
         android:key="diag"
         android:layout="@layout/preference_status_card"
