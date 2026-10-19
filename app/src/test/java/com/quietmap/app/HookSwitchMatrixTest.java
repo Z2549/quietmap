@@ -8,9 +8,9 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * 九钩子开关矩阵：每个开关独立生效，互不干扰。
+ * 十二钩子开关矩阵：每个开关独立生效，互不干扰。
  * 行=override 的键（关掉一个），列=各 Feature 的 enabled 结果。
- * 批 2 新增三键 splash_gate / splash_request / splash_shake 同样逐项覆盖。
+ * 批 2 三个开屏键、批 3 三个首页键同样逐项覆盖。
  */
 public class HookSwitchMatrixTest {
 
@@ -19,6 +19,22 @@ public class HookSwitchMatrixTest {
     public void splashKeysInMatrix() {
         for (Feature off : new Feature[]{Feature.SPLASH_GATE, Feature.SPLASH_REQUEST,
                 Feature.SPLASH_SHAKE}) {
+            Map<String, Boolean> overrides = new HashMap<>();
+            overrides.put(off.key, false);
+            Config c = Config.fromOverrides(overrides);
+            for (Feature f : Feature.values()) {
+                boolean expected = f != off;
+                assertEquals("关掉 " + off.key + " 后 " + f.key + " 状态不对",
+                        expected, c.enabled(f));
+            }
+        }
+    }
+
+    /** 批 3（首页营销三件套）三个新键必须落在矩阵里，且互不干扰。 */
+    @Test
+    public void homeKeysInMatrix() {
+        for (Feature off : new Feature[]{Feature.HOME_BANNER, Feature.HOME_OPERATE_BAR,
+                Feature.HOME_MSG_FILTER}) {
             Map<String, Boolean> overrides = new HashMap<>();
             overrides.put(off.key, false);
             Config c = Config.fromOverrides(overrides);

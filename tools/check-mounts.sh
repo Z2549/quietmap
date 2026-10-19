@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 挂载点体检：高德升级后跑这个，30 秒内知道九个钩子的挂载点还活着几个。
+# 挂载点体检：高德升级后跑这个，30 秒内知道十二个钩子的挂载点还活着几个。
 #
 # 用法（Git Bash）：
 #   bash tools/check-mounts.sh [apk路径] [缓存输出目录]
@@ -53,6 +53,15 @@ count() {
 # 挂载点清单：完整方法描述符|功能
 # 完整描述符 = 类描述符 + ";->" + 方法名 + 参数/返回值 JNI 签名，与 dexsql 的
 # methods.descriptor 列同构，直接全等比对即可判 SIG。
+#
+# 批 3（首页营销三件套）说明：
+# - sendList 批 2 经验的多重载全挂：2 参 + 3 参两条都列。
+# - getMessages 批 3 dexsql 复核发现是**三个**重载（任务清单原写 1 个），三条全列。
+# - IDeliveryDisplay#start 挂实现类 Llt1（接口层 hook 无效，ART 走 itable 分派），
+#   Llt1 是混淆类，与 Lze5 同样需要「类名变更监控」——这里只查签名，
+#   运行时定位失败由 fail-open 记 skip；类名变了查 class_interfaces 反查新实现类。
+# - AjxModuleBadge 是 AbstractModuleBadge（抽象类）的唯一子类，
+#   updateAppBadge/setBadgeDisplay 的实体实现都在它上面（smali 实测）。
 MOUNTS='Lcom/autonavi/minimap/bundle/msgbox/util/MessageBoxManager;->getMessageInBackground(Landroid/app/Activity;Z)V|bg_msg_fetch 后台拉取营销消息
 Lcom/autonavi/minimap/bundle/msgbox/push/BackgroundMsgScreenReceiver;->onReceive(Landroid/content/Context;Landroid/content/Intent;)V|bg_msg_fetch 亮屏触发源
 Lcom/autonavi/minimap/awaken/AwakenRequestHolder;->sendAwakenPage(Lcom/autonavi/minimap/awaken/param/AwakenPageRequest;Lcom/amap/bundle/aosservice/response/AosResponseCallback;)V|bg_awaken_report 唤端上报(2参)
@@ -70,7 +79,19 @@ Lcom/autonavi/minimap/alimama/AlimamaRequestHolder;->sendSplashScreen(Lcom/auton
 Lze5;->attemptRequestData(IZ)V|splash_request 开屏广告请求调度(混淆类,字符串锚定"不发送请求",SIG监控)
 Lcom/autonavi/minimap/entity/SplashButtonInfo;->getShakeGuide()Ljava/lang/String;|splash_shake 摇一摇引导清空
 Lcom/autonavi/minimap/entity/SplashButtonInfo;->getShakeTip()Ljava/lang/String;|splash_shake 摇一摇提示清空
-Lcom/autonavi/minimap/entity/SplashButtonInfo;->isSpeedStrict()Z|splash_shake 摇一摇速度严格关'
+Lcom/autonavi/minimap/entity/SplashButtonInfo;->isSpeedStrict()Z|splash_shake 摇一摇速度严格关
+Lcom/autonavi/minimap/banner/BannerRequestHolder;->sendList(Lcom/autonavi/minimap/banner/param/BannerListRequest;Lcom/amap/bundle/aosservice/response/AosResponseCallback;)V|home_banner Banner拉取(2参重载)
+Lcom/autonavi/minimap/banner/BannerRequestHolder;->sendList(Lcom/autonavi/minimap/banner/param/BannerListRequest;Lcom/autonavi/minimap/falcon/base/a;Lcom/amap/bundle/aosservice/response/AosResponseCallback;)V|home_banner Banner拉取(3参重载)
+Lcom/autonavi/bundle/banner/manager/BannerManager;->b(Ljava/lang/String;ZZLcom/autonavi/bundle/banner/manager/OnLoadBannerListener;)V|home_banner 运营位Banner加载
+Lcom/autonavi/bundle/uitemplate/mapwidget/widget/activity/OperateActivityMapWidget;->refreshSplashBar(Lcom/autonavi/minimap/bundle/msgbox/entity/AmapMessage;Ljava/lang/String;Ljava/lang/String;Lcom/autonavi/minimap/bundle/msgbox/listener/ActivityEventCallback;)V|home_operate_bar 首页运营活动条
+Lcom/autonavi/bundle/uitemplate/mapwidget/widget/msgtip/MsgTipMapWidget;->showTips(Lcom/autonavi/minimap/bundle/msgbox/entity/AmapMessage;I)Z|home_operate_bar 地图消息气泡(return false)
+Lcom/autonavi/minimap/bundle/msgbox/util/MessageBoxManager;->getMessages(Lcom/autonavi/minimap/bundle/msgbox/util/MessageBoxManager$GetMessageListener;ZLxf2;)V|home_msg_filter 消息拉取(2参重载)
+Lcom/autonavi/minimap/bundle/msgbox/util/MessageBoxManager;->getMessages(Lcom/autonavi/minimap/bundle/msgbox/util/MessageBoxManager$GetMessageListener;ZZLxf2;)V|home_msg_filter 消息拉取(3参重载)
+Lcom/autonavi/minimap/bundle/msgbox/util/MessageBoxManager;->getMessages(Lcom/autonavi/minimap/bundle/msgbox/util/MessageBoxManager$GetMessageListener;ZZLxf2;Ljava/lang/String;)V|home_msg_filter 消息拉取(4参重载)
+Lcom/autonavi/minimap/bundle/msgbox/util/MessageBoxManager;->retrieveRemoteMessages(Ljava/util/Set;Ljava/lang/String;)V|home_msg_filter 远程营销消息拉取
+Llt1;->start(Landroid/app/Activity;Lcom/autonavi/minimap/bundle/msgbox/entity/AmapMessage;)V|home_msg_filter 主图投放(接口IDeliveryDisplay实现类,混淆类)
+Lcom/amap/bundle/badgesystem/ajxmodule/AjxModuleBadge;->updateAppBadge(Ljava/lang/String;I)V|home_msg_filter 角标红点更新
+Lcom/amap/bundle/badgesystem/ajxmodule/AjxModuleBadge;->setBadgeDisplay(Ljava/lang/String;Z)V|home_msg_filter 角标显示(强制false)'
 
 echo
 echo "APK: $APK"
@@ -122,7 +143,7 @@ total=$((ok + sig + gone))
 echo
 echo "汇总: 共 $total 项 — OK $ok / SIG $sig / GONE $gone"
 if [ "$sig" -eq 0 ] && [ "$gone" -eq 0 ]; then
-  echo "九钩子挂载点全部存活。"
+  echo "十二钩子挂载点全部存活。"
 else
   echo "OK=还在；SIG=类在但签名/锚点变了；GONE=类没了。变的项要重新用 dexsql 定位。"
 fi

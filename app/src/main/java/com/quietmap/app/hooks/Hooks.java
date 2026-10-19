@@ -72,6 +72,15 @@ public final class Hooks {
                 case POPUP_UPGRADE:
                     PopupUpgradeHooks.install(module, cl);
                     break;
+                case HOME_BANNER:
+                    HomeBannerHooks.install(module, cl);
+                    break;
+                case HOME_OPERATE_BAR:
+                    HomeOperateBarHooks.install(module, cl);
+                    break;
+                case HOME_MSG_FILTER:
+                    HomeMsgFilterHooks.install(module, cl);
+                    break;
                 default:
                     break;
             }

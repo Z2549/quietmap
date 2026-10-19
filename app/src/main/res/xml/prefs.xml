@@ -59,6 +59,22 @@
 
     </PreferenceCategory>
 
+    <PreferenceCategory android:title="@string/group_home">
+
+        <com.quietmap.app.MaterialSwitchPreference
+            android:icon="@drawable/ic_ads"
+            android:key="home_banner" />
+
+        <com.quietmap.app.MaterialSwitchPreference
+            android:icon="@drawable/ic_content"
+            android:key="home_operate_bar" />
+
+        <com.quietmap.app.MaterialSwitchPreference
+            android:icon="@drawable/ic_content"
+            android:key="home_msg_filter" />
+
+    </PreferenceCategory>
+
     <Preference
         android:key="diag"
         android:layout="@layout/preference_status_card"

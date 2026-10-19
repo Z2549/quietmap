@@ -24,7 +24,10 @@ public class FeatureTest {
             "bg_afc_taoke",
             "bg_utdid_upload",
             "h5_install_apk",
-            "popup_upgrade"
+            "popup_upgrade",
+            "home_banner",
+            "home_operate_bar",
+            "home_msg_filter"
     ));
 
     @Test

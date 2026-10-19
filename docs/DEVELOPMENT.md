@@ -14,7 +14,7 @@ app/src/main/java/com/quietmap/app/
 ├── ServiceBridge.java         XposedService 绑定（丢占位 binder + SendBinder 补投）
 ├── ReportProvider.java        诊断回传 ContentProvider（高德进程 → 模块 App）
 ├── MainActivity.java          设置入口（Material 3，点标题弹关于）
-├── SettingsFragment.java      设置页（状态卡 / 九开关 / 诊断卡 / 页脚）
+├── SettingsFragment.java      设置页（状态卡 / 十二开关 / 诊断卡 / 页脚）
 ├── MaterialSwitchPreference.java
 ├── dexkit/
 │   ├── Anchors.java           混淆类锚点定义（"不发送请求"）
@@ -25,7 +25,8 @@ app/src/main/java/com/quietmap/app/
     ├── Report.java            命中回传（每 3 秒快照上报）
     └── SplashGateHooks / SplashRequestHooks / SplashShakeHooks /
         BgMsgFetchHooks / BgAwakenReportHooks / BgAfcTaokeHooks /
-        BgUtdidUploadHooks / H5InstallApkHooks / PopupUpgradeHooks
+        BgUtdidUploadHooks / H5InstallApkHooks / PopupUpgradeHooks /
+        HomeBannerHooks / HomeOperateBarHooks / HomeMsgFilterHooks
 app/src/main/resources/META-INF/xposed/   模块声明三件套
 app/src/test/java/com/quietmap/app/        纯 JVM 单测（Feature 映射 / 开关矩阵）
 tools/check-mounts.sh                     挂载点体检（dexsql）
@@ -56,9 +57,9 @@ compileSdk 只能用 36（已实测 36 可用；需要 37 时先把安装目录�
 ./gradlew test
 ```
 
-覆盖两块：`FeatureTest`（九个开关 key ↔ 编译期默认值映射，key 一旦改动会断掉用户已存的
-开关状态，测试锁死它）、`HookSwitchMatrixTest`（九个钩子开关矩阵：每开关独立、全开、全关，
-含批 2 三个开屏键的独立项）。
+覆盖两块：`FeatureTest`（十二个开关 key ↔ 编译期默认值映射，key 一旦改动会断掉用户已存的
+开关状态，测试锁死它）、`HookSwitchMatrixTest`（十二个钩子开关矩阵：每开关独立、全开、全关，
+含批 2 三个开屏键与批 3 三个首页键的独立项）。
 
 ## 挂载点体检
 
@@ -78,7 +79,7 @@ bash tools/check-mounts.sh "E:\download\base(5).apk"
 
 混淆类挂载点（`Lze5#attemptRequestData`）额外按方法体字符串锚点复核：签名在但
 `"不发送请求"` 锚点串丢了也判 `SIG`（运行时 DexKit 会定位失败），输出带 `[锚点OK]` 标记。
-末尾汇总 OK/SIG/GONE 计数（批 2 后共 18 项）。SIG/GONE 的项要先用 dexsql 重新定位：
+末尾汇总 OK/SIG/GONE 计数（批 3 后共 30 项）。SIG/GONE 的项要先用 dexsql 重新定位：
 
 ```bash
 E:/tools/dexsql/dexsql.exe query --input <apk> \
@@ -175,8 +176,12 @@ gh release create 1-0.1.0 quietmap-0.1.0.apk --title "0.1.0" --notes "<更新说
 
 仅保证高德 17.01.0.2012，其它版本尽力而为。挂载点绝大多数是非混淆类（`com.autonavi.*`
 业务包 / 淘宝、支付宝 SDK 包），升级后大概率仍在，但签名可能变——先跑
-`tools/check-mounts.sh` 再说。唯一混淆挂载点 `Lze5#attemptRequestData` 由 DexKit
-字符串锚定兜底，锚点失效时 check-mounts 会判 SIG 并提示换锚。
+`tools/check-mounts.sh` 再说。混淆挂载点有两个：`Lze5#attemptRequestData` 由 DexKit
+字符串锚定兜底；批 3 的 `Llt1#IDeliveryDisplay.start`（IDeliveryDisplay 实现类）
+目前按类名直挂，升级后若类名变化会记 skip（fail-open，不影响其余钩子），
+重新定位方法是用 dexsql `class_interfaces` 按接口
+`Lcom/autonavi/minimap/bundle/msgbox/mainmap/IDeliveryDisplay;` 反查新实现类。
+锚点失效时 check-mounts 会判 SIG 并提示换锚。
 
 ## GPL 红线
 
@@ -186,6 +191,68 @@ gh release create 1-0.1.0 quietmap-0.1.0.apk --title "0.1.0" --notes "<更新说
 报告注明。同理，调试中也不要把它们的产物放进本仓库。
 
 ## 变更记录
+
+### 批 3（v0.3.0）首页营销三件套 + 红点体系
+
+三个新开关（默认全开），共 12 个挂载点（check-mounts 总数 18 → 30）：
+
+| 开关 | 挂载点 | 动作 |
+|---|---|---|
+| `home_banner` | `BannerRequestHolder#sendList` 2 参 + 3 参重载 | 不调用（Banner 拉取断源） |
+| `home_banner` | `BannerManager#b(String,ZZ,OnLoadBannerListener)` | 不调用 |
+| `home_operate_bar` | `OperateActivityMapWidget#refreshSplashBar(...)` | 不调用（运营活动条） |
+| `home_operate_bar` | `MsgTipMapWidget#showTips(AmapMessage,int)` | return `false`（地图消息气泡） |
+| `home_msg_filter` | `MessageBoxManager#getMessages` **三个重载** | 不调用（消息/红点拉取总入口） |
+| `home_msg_filter` | `MessageBoxManager#retrieveRemoteMessages(Set,String)` | 不调用（远程营销消息断源） |
+| `home_msg_filter` | `Llt1;->start(Activity,AmapMessage)`（IDeliveryDisplay 实现类） | 不调用（主图投放） |
+| `home_msg_filter` | `AjxModuleBadge#updateAppBadge(String,int)` | 不调用（角标红点更新） |
+| `home_msg_filter` | `AjxModuleBadge#setBadgeDisplay(String,boolean)` | 强制 `false`（角标显示广播不发出） |
+
+dexsql 复核与任务清单的出入（一律以 dexsql 为准）：
+
+1. `MessageBoxManager#getMessages` 实测是**三个**重载（清单只写 1 个）：
+   `(GetMessageListener,Z,xf2)`、`(GetMessageListener,Z,Z,xf2)`、
+   `(GetMessageListener,Z,Z,xf2,String)`。三条全挂。外部触发入口只有
+   `ModuleMessageBox#hasNewMessage`（AJX 桥）与 `fetchMessageFromMainMap`；
+   后者两个调用点都传 0，实际早退不拉取。
+2. `IDeliveryDisplay` 是纯接口（`access_flags=17`），hook 接口方法无效
+   （ART 走 itable 分派到实现类）。dexsql `class_interfaces` 查到实现类
+   `Llt1;`，`AMapHomeMsgManager$b$a;->run()V` smali 里 `new-instance Llt1;`
+   后 `invoke-interface IDeliveryDisplay;->start` —— 必须挂 `Llt1;->start`。
+3. `AbstractModuleBadge` 是抽象类（`access_flags=1025`），
+   `updateAppBadge`/`setBadgeDisplay` 的实体实现都在唯一子类
+   `com.amap.bundle.badgesystem.ajxmodule.AjxModuleBadge`（smali 实测），
+   故挂子类而不是抽象类。
+4. `BannerManager#b` 与调研清单一致；`sendList` 2/3 参重载均存在。
+
+`home_msg_filter` 的取舍（白名单式，非一刀切）：
+
+- 本批取**数据层断源**（不拉远程消息），不按 `isAd` 逐条过滤：`getMessages`
+  是拉取总入口，逐条过滤需要 hook 回调并改写
+  `GetMessageListener.onFinish(List,List,boolean,boolean)` 的列表，复杂度高
+  且回调可能已触发 UI 更新。`AmapMessage.isAd` 实测是 String 字段，
+  `refreshSplashBar`/`showTips` 均以 `get` 读取（method_field_accesses 实证）。
+- dexsql 检索 `AmapMessage` 全部 `TOKEN_*` 常量（`TOKEN_UPDATE_APP`、
+  `TOKEN_TAOBAO_LOGIN`、`TOKEN_TRAVEL`、`TOKEN_REAL3D`、
+  `TOKEN_CLOUD_SYNC_DIALOG`、`TOKEN_OFFLINE_DOWN_CITY`、
+  `TOKEN_UPDATE_OFFLINE_MAP`、`TOKEN_DOWNLOAD_SEAR_MAP`），
+  **未发现 `TOKEN_SYSTEM*` 之类的系统通知 token**。msgbox 承载的是运营/活动/
+  升级/离线地图等业务消息，系统通知走 NotificationManager，不在本钩子影响面内。
+- 本地已缓存消息走 DB（`getAllLocalMessages` / `retrieveLocalMessages`），
+  本批只挂 `getMessages` + `retrieveRemoteMessages`，**不碰 `getAllLocalMessages`**，
+  因此历史本地消息仍可读。若用户发现消息列表不刷新/为空，关掉
+  `home_msg_filter` 即可完全回退。
+
+模拟器实测（quietmap-test / Android x86_64 + berberis，高德 17.01.0.2012）：
+
+- 冷启动 3 次（含一次模块重装后重新 enable + 加 scope）：每进程 30 个挂载点
+  全部 `registered`（主进程 30 条），`skip: ` 计数 0；三键日志齐全。
+- `home_msg_filter hit AjxModuleBadge#updateAppBadge` 实测命中（多次），
+  证明角标红点链路被拦截；其余首页钩子在本环境无营销数据下发（vanilla
+  对照同样无 Banner/运营条），`registered` 待命中观察。
+- 首页功能正常（搜索框 / 金刚区 / tab / 地图渲染）；无高德 Java FATAL。
+  原生 SIGSEGV 仍为已知 `XcdnEngine` 问题（见下节），与批 1/2 一致。
+- 截图与日志：`E:\tmp-amap-hook\batch3-*.png`、`batch3-final-session-logcat.txt`。
 
 ### 批 2（v0.2.0）开屏一条龙
 

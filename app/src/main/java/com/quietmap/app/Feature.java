@@ -4,8 +4,9 @@ package com.quietmap.app;
  * 功能清单。key 同时是模块 App 内 remote prefs 的键，也是目标进程
  * getRemotePreferences("config") 的键，两处必须一致；日志里的 featureId 也用它。
  *
- * 九个开关全部默认开启：模块定位是「装上即净」，用户只在个别场景关掉单项。
- * 枚举顺序 = hook 安装顺序：开屏三键放最前（启动路径最敏感，尽早落钩）。
+ * 十二个开关全部默认开启：模块定位是「装上即净」，用户只在个别场景关掉单项。
+ * 枚举顺序 = hook 安装顺序：开屏三键放最前（启动路径最敏感，尽早落钩），
+ * 批 3 首页三键放最后（首页路径，不参与启动链路）。
  */
 public enum Feature {
 
@@ -26,7 +27,18 @@ public enum Feature {
     /** H5 静默下载安装 APK（DeviceInfo#installApk）。 */
     H5_INSTALL_APK("h5_install_apk", R.string.f_h5_install_apk_title, R.string.f_h5_install_apk_summary),
     /** 升级弹窗（AppUpgradeController#q）。 */
-    POPUP_UPGRADE("popup_upgrade", R.string.f_popup_upgrade_title, R.string.f_popup_upgrade_summary);
+    POPUP_UPGRADE("popup_upgrade", R.string.f_popup_upgrade_title, R.string.f_popup_upgrade_summary),
+    /** 首页 Banner 断源（BannerRequestHolder#sendList 全重载 + BannerManager#b）。 */
+    HOME_BANNER("home_banner", R.string.f_home_banner_title, R.string.f_home_banner_summary),
+    /** 首页运营活动条与地图消息气泡（refreshSplashBar 不调用 + showTips 返回 false）。 */
+    HOME_OPERATE_BAR("home_operate_bar", R.string.f_home_operate_bar_title, R.string.f_home_operate_bar_summary),
+    /**
+     * 首页消息红点体系（数据层断源，白名单式取舍）：
+     * getMessages 全重载 + retrieveRemoteMessages 不调用（营销红点拉取断源）、
+     * IDeliveryDisplay#start 不调用（主图投放）、updateAppBadge 不调用 +
+     * setBadgeDisplay 强制 false（角标红点）。
+     */
+    HOME_MSG_FILTER("home_msg_filter", R.string.f_home_msg_filter_title, R.string.f_home_msg_filter_summary);
 
     public final String key;
     public final int titleRes;
