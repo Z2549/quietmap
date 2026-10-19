@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <Preference
+        android:key="status"
+        android:layout="@layout/preference_status_card"
+        android:selectable="false"
+        android:title="@string/status_title" />
+
+    <PreferenceCategory android:title="@string/group_bg">
+
+        <com.quietmap.app.MaterialSwitchPreference
+            android:icon="@drawable/ic_ads"
+            android:key="bg_msg_fetch" />
+
+        <com.quietmap.app.MaterialSwitchPreference
+            android:icon="@drawable/ic_ads"
+            android:key="bg_awaken_report" />
+
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="@string/group_data">
+
+        <com.quietmap.app.MaterialSwitchPreference
+            android:icon="@drawable/ic_content"
+            android:key="bg_afc_taoke" />
+
+        <com.quietmap.app.MaterialSwitchPreference
+            android:icon="@drawable/ic_content"
+            android:key="bg_utdid_upload" />
+
+        <com.quietmap.app.MaterialSwitchPreference
+            android:icon="@drawable/ic_content"
+            android:key="h5_install_apk" />
+
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="@string/group_ui">
+
+        <com.quietmap.app.MaterialSwitchPreference
+            android:icon="@drawable/ic_ui"
+            android:key="popup_upgrade" />
+
+    </PreferenceCategory>
+
+    <Preference
+        android:key="diag"
+        android:layout="@layout/preference_status_card"
+        android:selectable="false"
+        android:title="@string/diag_title"
+        android:summary="@string/diag_hint" />
+
+    <Preference
+        android:key="footer"
+        android:layout="@layout/preference_footer"
+        android:selectable="false"
+        android:summary="@string/footer_limits" />
+
+</PreferenceScreen>

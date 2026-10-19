@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 自适应图标前景：一个地图定位针，呼应 QuietMap（高德净化）。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M54,28c-11,0 -20,9 -20,20c0,15 20,32 20,32s20,-17 20,-32c0,-11 -9,-20 -20,-20z" />
+    <path
+        android:fillColor="#FF1F1F1F"
+        android:pathData="M54,40a8,8 0,1 1,0 16a8,8 0,1 1,0 -16z" />
+</vector>

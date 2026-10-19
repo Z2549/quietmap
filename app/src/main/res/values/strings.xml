@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">QuietMap</string>
+    <string name="module_description">让高德地图安静下来：后台净化、数据层断源、收敛弹窗。</string>
+
+    <!-- 界面外壳 -->
+    <string name="about_title">关于 QuietMap</string>
+    <string name="about_body">版本 %1$s\n后台净化 + 数据层断源 · libxposed API 102\n\n本模块与高德地图官方无任何关联，仅供学习、研究和个人设备使用。使用可能违反目标应用的服务条款，风险由使用者自行承担。\n\nMIT License\ngithub.com/yigenhuobah/quietmap</string>
+
+    <!-- 顶部状态卡 -->
+    <string name="status_title">模块状态</string>
+    <string name="status_active">已激活</string>
+    <string name="status_connected">框架已连接</string>
+    <string name="status_inactive">未激活</string>
+    <string name="status_connecting">正在连接框架…</string>
+    <string name="status_detail_active">框架 API %1$d · 已注入高德 · v%2$s</string>
+    <string name="status_detail_no_scope">框架 API %1$d · 作用域未勾选 com.autonavi.minimap · v%2$s</string>
+    <string name="status_detail_not_running">框架 API %1$d · 启动高德后生效 · v%2$s</string>
+    <string name="status_detail_connecting">绑定成功后自动刷新</string>
+    <string name="status_remote_ok">remote prefs：可用，开关改动高德进程可读</string>
+    <string name="status_remote_fail">remote prefs：不可用，开关暂存本地、当前不生效</string>
+
+    <!-- 分组 -->
+    <string name="group_bg">后台净化</string>
+    <string name="group_data">数据层断源</string>
+    <string name="group_ui">界面</string>
+
+    <!-- 诊断卡 -->
+    <string name="diag_title">诊断</string>
+    <string name="diag_hint">registered=挂载成功 · hit N=命中次数 · skip=已跳过。数据来自高德进程回传，启动高德后约 3 秒刷新。</string>
+
+    <!-- 页脚 -->
+    <string name="footer_limits">仅保证高德 17.01.0.2012，其它版本尽力而为。</string>
+
+    <!-- 功能标题与说明 -->
+    <string name="f_bg_msg_fetch_title">后台消息拉取净化</string>
+    <string name="f_bg_msg_fetch_summary">断开亮屏时后台拉取营销消息，并掐掉亮屏触发源</string>
+    <string name="f_bg_awaken_report_title">唤端上报断源</string>
+    <string name="f_bg_awaken_report_summary">不发送唤起端上报请求</string>
+    <string name="f_bg_afc_taoke_title">淘宝客广告 SDK 断源</string>
+    <string name="f_bg_afc_taoke_summary">阻止淘宝客广告 SDK 冷启动注册</string>
+    <string name="f_bg_utdid_upload_title">设备指纹上传断源</string>
+    <string name="f_bg_utdid_upload_summary">阻断 utdid 设备指纹的上传与服务端交换</string>
+    <string name="f_h5_install_apk_title">H5 静默安装断源</string>
+    <string name="f_h5_install_apk_summary">阻断 H5 页面静默下载并安装 APK</string>
+    <string name="f_popup_upgrade_title">升级弹窗屏蔽</string>
+    <string name="f_popup_upgrade_summary">不再弹出版本升级提示</string>
+</resources>
