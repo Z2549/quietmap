@@ -31,7 +31,10 @@ public class FeatureTest {
             "search_hotword",
             "h5_ad_log",
             "map_float_layer",
-            "msg_image_text"
+            "msg_image_text",
+            "popup_clean",
+            "track_suppress",
+            "shake_h5"
     ));
 
     @Test

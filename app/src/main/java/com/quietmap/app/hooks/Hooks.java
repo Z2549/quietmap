@@ -93,6 +93,15 @@ public final class Hooks {
                 case MSG_IMAGE_TEXT:
                     MsgImageTextHooks.install(module, cl);
                     break;
+                case POPUP_CLEAN:
+                    PopupCleanHooks.install(module, cl);
+                    break;
+                case TRACK_SUPPRESS:
+                    TrackSuppressHooks.install(module, cl);
+                    break;
+                case SHAKE_H5:
+                    ShakeH5Hooks.install(module, cl);
+                    break;
                 default:
                     break;
             }

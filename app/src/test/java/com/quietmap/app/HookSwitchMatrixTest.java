@@ -8,9 +8,10 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * 十六钩子开关矩阵：每个开关独立生效，互不干扰。
+ * 十九钩子开关矩阵：每个开关独立生效，互不干扰。
  * 行=override 的键（关掉一个），列=各 Feature 的 enabled 结果。
- * 批 2 三个开屏键、批 3 三个首页键、批 4 四个搜索/推广键同样逐项覆盖。
+ * 批 2 三个开屏键、批 3 三个首页键、批 4 四个搜索/推广键、批 5 三个
+ * 弹窗/统计/摇一摇键同样逐项覆盖。
  */
 public class HookSwitchMatrixTest {
 
@@ -51,6 +52,22 @@ public class HookSwitchMatrixTest {
     public void searchPromoKeysInMatrix() {
         for (Feature off : new Feature[]{Feature.SEARCH_HOTWORD, Feature.H5_AD_LOG,
                 Feature.MAP_FLOAT_LAYER, Feature.MSG_IMAGE_TEXT}) {
+            Map<String, Boolean> overrides = new HashMap<>();
+            overrides.put(off.key, false);
+            Config c = Config.fromOverrides(overrides);
+            for (Feature f : Feature.values()) {
+                boolean expected = f != off;
+                assertEquals("关掉 " + off.key + " 后 " + f.key + " 状态不对",
+                        expected, c.enabled(f));
+            }
+        }
+    }
+
+    /** 批 5（弹窗/统计/摇一摇）三个新键必须落在矩阵里，且互不干扰。 */
+    @Test
+    public void finalBatchKeysInMatrix() {
+        for (Feature off : new Feature[]{Feature.POPUP_CLEAN, Feature.TRACK_SUPPRESS,
+                Feature.SHAKE_H5}) {
             Map<String, Boolean> overrides = new HashMap<>();
             overrides.put(off.key, false);
             Config c = Config.fromOverrides(overrides);

@@ -27,7 +27,8 @@ app/src/main/java/com/quietmap/app/
         BgMsgFetchHooks / BgAwakenReportHooks / BgAfcTaokeHooks /
         BgUtdidUploadHooks / H5InstallApkHooks / PopupUpgradeHooks /
         HomeBannerHooks / HomeOperateBarHooks / HomeMsgFilterHooks /
-        SearchHotwordHooks / H5AdLogHooks / FloatLayerHooks / MsgImageTextHooks
+        SearchHotwordHooks / H5AdLogHooks / FloatLayerHooks / MsgImageTextHooks /
+        PopupCleanHooks / TrackSuppressHooks / ShakeH5Hooks
 app/src/main/resources/META-INF/xposed/   模块声明三件套
 app/src/test/java/com/quietmap/app/        纯 JVM 单测（Feature 映射 / 开关矩阵）
 tools/check-mounts.sh                     挂载点体检（dexsql）
@@ -58,9 +59,9 @@ compileSdk 只能用 36（已实测 36 可用；需要 37 时先把安装目录�
 ./gradlew test
 ```
 
-覆盖两块：`FeatureTest`（十六个开关 key ↔ 编译期默认值映射，key 一旦改动会断掉用户已存的
-开关状态，测试锁死它）、`HookSwitchMatrixTest`（十六个钩子开关矩阵：每开关独立、全开、全关，
-含批 2 三个开屏键、批 3 三个首页键与批 4 四个搜索/推广键的独立项）。
+覆盖两块：`FeatureTest`（十九个开关 key ↔ 编译期默认值映射，key 一旦改动会断掉用户已存的
+开关状态，测试锁死它）、`HookSwitchMatrixTest`（十九个钩子开关矩阵：每开关独立、全开、全关，
+含批 2 三个开屏键、批 3 三个首页键、批 4 四个搜索/推广键与批 5 三个弹窗/统计/摇一摇键的独立项）。
 
 ## 挂载点体检
 
@@ -80,7 +81,7 @@ bash tools/check-mounts.sh "E:\download\base(5).apk"
 
 混淆类挂载点（`Lze5#attemptRequestData`）额外按方法体字符串锚点复核：签名在但
 `"不发送请求"` 锚点串丢了也判 `SIG`（运行时 DexKit 会定位失败），输出带 `[锚点OK]` 标记。
-末尾汇总 OK/SIG/GONE 计数（批 4 后共 38 项）。SIG/GONE 的项要先用 dexsql 重新定位：
+末尾汇总 OK/SIG/GONE 计数（批 5 后共 52 项）。SIG/GONE 的项要先用 dexsql 重新定位：
 
 ```bash
 E:/tools/dexsql/dexsql.exe query --input <apk> \
@@ -177,13 +178,15 @@ gh release create 1-0.1.0 quietmap-0.1.0.apk --title "0.1.0" --notes "<更新说
 
 仅保证高德 17.01.0.2012，其它版本尽力而为。挂载点绝大多数是非混淆类（`com.autonavi.*`
 业务包 / 淘宝、支付宝 SDK 包），升级后大概率仍在，但签名可能变——先跑
-`tools/check-mounts.sh` 再说。混淆挂载点有三个：`Lze5#attemptRequestData` 与
+`tools/check-mounts.sh` 再说。混淆挂载点有五个：`Lze5#attemptRequestData` 与
 批 4 的 `La8#run`（图文素材下载任务）由 DexKit 字符串锚定兜底，锚点分别是
 `"不发送请求"` 与 `"invalid download item: " + "ImageTextMessageDownloader"`；
-批 3 的 `Llt1#IDeliveryDisplay.start`（IDeliveryDisplay 实现类）
-目前按类名直挂，升级后若类名变化会记 skip（fail-open，不影响其余钩子），
-重新定位方法是用 dexsql `class_interfaces` 按接口
-`Lcom/autonavi/minimap/bundle/msgbox/mainmap/IDeliveryDisplay;` 反查新实现类。
+批 3 的 `Llt1#IDeliveryDisplay.start`（IDeliveryDisplay 实现类）与批 5 的
+`Lcx1#IDialogConflictMgr.addToQueue`（IDialogConflictMgr 实现类）目前按类名直挂，
+升级后若类名变化会记 skip（fail-open，不影响其余钩子）。重新定位方法是用 dexsql
+`class_interfaces` 按接口反查新实现类：
+`Lcom/autonavi/minimap/bundle/msgbox/mainmap/IDeliveryDisplay;` 与
+`Lcom/autonavi/bundle/amaphome/api/IDialogConflictMgr;`。
 锚点失效时 check-mounts 会判 SIG 并提示换锚。
 
 ## GPL 红线
@@ -194,6 +197,181 @@ gh release create 1-0.1.0 quietmap-0.1.0.apk --title "0.1.0" --notes "<更新说
 报告注明。同理，调试中也不要把它们的产物放进本仓库。
 
 ## 变更记录
+
+### 批 5（v0.5.0）全量收尾：弹窗/统计/摇一摇 + push 补挂 + 覆盖矩阵
+
+三个新开关（默认全开）+ `bg_msg_fetch` 补挂，共 **14 个新挂载点**
+（check-mounts 总数 38 → 52）：
+
+| 开关 | 挂载点 | 动作 |
+|---|---|---|
+| `popup_clean` | `UpdateHintConfigDownloader#a()V` | 不调用（升级提示配置不下载） |
+| `popup_clean` | `Lcx1#IDialogConflictMgr.addToQueue(DialogConflictInfo)Z` | return `false`（首页弹窗冲突队列不入队） |
+| `track_suppress` | `track.b#e(...)V` | 不调用（开屏曝光/点击埋点） |
+| `track_suppress` | `track.b#f(...)V` | 不调用（开屏埋点聚合 + 三方监测） |
+| `track_suppress` | `SplashLogManager#a(String,String,String,String,Z)V` | 不调用（开屏日志上传） |
+| `track_suppress` | `UTTracker#send(Map)V` | 不调用（UT 统计总出口） |
+| `track_suppress` | `UTTracker#sendLog(Map,int,List)V` | 不调用（UT 落盘/转发入口） |
+| `shake_h5` | `H5ShakePlugin#handleEvent(H5Event,H5BridgeContext)Z` | 仅 `watchShake` 返回 true，其余 action 放行 |
+| `shake_h5` | `H5SensorPlugin#registerGyroscopeListener(H5Event)Z` | return `false`（不注册陀螺仪） |
+| `shake_h5` | `AMapAppStartShakePoint#onInitialized()V` | 不调用（小程序摇一摇初始化） |
+| `shake_h5` | `SensorManagerHelper#onSensorChanged(SensorEvent)V` | 不调用（监听回调第二道保险） |
+| `bg_msg_fetch` | `MessageBoxManager#handlePush(String)V` | 不调用（推送消息处理入口） |
+| `bg_msg_fetch` | `BackgroundMsgManager#a(IBackgroundMsgFetchListener)V` | 不调用（后台营销消息拉取） |
+| `bg_msg_fetch` | `MessageBoxManager#fetchMessageFromMainMap(int,Z,MainMapUIUpdater)V` | 不调用（主图消息拉取包装） |
+
+dexsql 复核（高德 17.01.0.2012，一律以实测为准）：
+
+| 复核项 | 实测结果 |
+|---|---|
+| `MessageBoxManager.executeAction` | 只有 **1 个**重载 `(AmapMessage)V`，118 opcodes；方法体按 `id` 分支：`appUpdate` / `downloadSeatMap` / `taobaoLogin` / 其它走 `actionUri`；**不读任何 `TOKEN_*` 字段** |
+| `MessageBoxManager.executeBtnAction` | 只有 **1 个**重载 `(String)V`，27 opcodes；通用 `Intent.ACTION_VIEW` + `DoNotUseTool.startScheme` |
+| `AmapMessage.TOKEN_*` | 实测值：`appUpdate`、`taobaoLogin`、`travel`、`real3d`、`cloud_sync_dialog`、`downloadSeatMap`、`offlineDownCity`、`updateOfflineMap`；`method_field_accesses` 中 **没有任何方法读取这些常量**（只用于构造/比较 id） |
+| `handlePush` | `(String)V`，29 opcodes；解析 `"AmapPush-"` 前缀、写 `PUSH_MSG` prefs、post `MessageBoxManager$c` 按 id 拉取 |
+| `BackgroundPushServiceImpl` | `a()V` 61、`b()Z` 34、`push()V` 284、`refreshPushMsg()V` 9；内部调用 `BackgroundMsgManager` |
+| `BackgroundMsgManager` | `a(IBackgroundMsgFetchListener)V` 30 opcodes，请求 `/ws/msgbox/notice-msgs` + `IBehaviorService.customHit` |
+| `fetchMessageFromMainMap` | `(IZMainMapUIUpdater)V` 12 opcodes，直接转 `getMessages(...,"1")` |
+| `PushManager` / `PushBindReceiver` | `PushManager#getPushAgent()` 返回 `notification.api.IPushAgent`；`PushBindReceiver#onSuccess/onFailure` 是绑定结果回调；APK 内含小米/华为/荣耀/Heytap/Vivo 推送组件 |
+| `track.b.e/f` | `e(...)` 19 参 128 opcodes、`f(...)` 20 参 74 opcodes；构建 `H5LogRequest`、发三方 GET 监测、转 UT 上报 |
+| `SplashLogManager.a` | `(String,String,String,String,Z)V` 34 opcodes，纯网络上报 |
+| `UTAnalytics` | 没有 `send/track` 方法；只提供 `getDefaultTracker()`。真正的上报入口是 `UTTracker#send(Map)V`（258 opcodes）与 `sendLog(Map,int,List)V`（28 opcodes） |
+| `H5ShakePlugin.handleEvent` | 113 opcodes；处理 `"vibrate"` 与 `"watchShake"`，`watchShake` 内 `SensorManager.registerListener` |
+| `H5SensorPlugin.registerGyroscopeListener` | 私有方法 66 opcodes；注册陀螺仪/加速度/磁场三个 sensor；调用方忽略返回值 |
+| `AMapAppStartShakePoint` | `onInitialized()V` 26 opcodes，`new SensorManagerHelper` 并直接注册；`onAppStart/onAppExit` 只维护 appId→callback 的 HashMap |
+| `SensorManagerHelper` | 只有 `onAccuracyChanged` / `onSensorChanged` 两个监听回调，**没有注册方法**（注册在 `onInitialized` 里完成） |
+| `IDialogConflictMgr` | 纯接口；唯一实现类 `Lcx1;`（`class_interfaces`：file_id=7, class_idx=10477）；`addToQueue` 61 opcodes |
+| `UpdateHintConfigDownloader.a` | `()V` 27 opcodes；方法体含 `update_hint_apk_newest_version` 等配置键 |
+
+`executeAction` 取舍结论：**不 hook**。实测它不读 `TOKEN_*`，只按 message id 分支；
+整段拦截会同时废掉 `downloadSeatMap`（离线地图下载）、`taobaoLogin`（账号）、
+`appUpdate` 弹窗和所有 `actionUri` 真实消息跳转，无法在不误伤系统/业务动作的前提下
+做「只拦营销 token」。营销消息源头已由批 3 `home_msg_filter`（`getMessages` +
+`retrieveRemoteMessages` 断源）处理，故本批按红线选择宁可不 hook。
+
+`popup_clean` 的中风险取舍：`Lcx1#addToQueue` 的调用方包括
+`GuideVideoViewController#showGuideView`（功能引导）、`SharedPassphraseManager`
+（分享口令）、`ModuleAMapHome#presentModalPage`（通用模态页）等，返回 false 会一并
+吞掉这些弹窗，可能包括登录失效等重要提示。因此该项默认开启但必须可单独关闭；
+关闭 `popup_clean` 后队列行为完全恢复。`UpdateHintConfigDownloader#a` 是独立低风险项。
+
+推送通道取舍：**不 hook `PushManager` / `PushBindReceiver` / `PushAidlService` /
+`MiPushActivity`**。它们是系统推送通道（APK manifest 内含小米 `XMPushService`、
+华为 `HmsMsgService`、荣耀 `HonorPushMessageService`、Heytap `PushService`、
+VivoPush 等），hook 会破坏 token 注册与厂商通道绑定。本批只在上层
+`handlePush` / `BackgroundMsgManager#a` 做消息体净化；推送到达也会被丢弃，
+但通道注册不受影响。
+
+模拟器实测（quietmap-test / Android 15 x86_64 + berberis，高德 17.01.0.2012）：
+
+- 构建：`./gradlew test assembleDebug assembleRelease` 成功；单测 12 个用例全绿
+  （`FeatureTest` 3 + `HookSwitchMatrixTest` 9）；release 产物
+  `quietmap-0.5.0.apk` 约 3.6 MB。
+- 挂载点体检：`bash tools/check-mounts.sh` 共 **52 项 — OK 52 / SIG 0 / GONE 0**。
+- 安装 0.5.0（覆盖 0.4.0）后冷启动 2 次：每个进程 **52 个挂载点全部 registered**
+  （主进程与 `:locationservice` 各 52 条），`skip: ` 计数 0，`hook failed` 0，
+  无高德 Java FATAL；19 个 featureId 全部出现在设置页诊断卡。
+- 新三键：`popup_clean`、`track_suppress`、`shake_h5` 全部 registered；
+  `bg_msg_fetch` 补挂的 `handlePush` / `BackgroundMsgManager#a` /
+  `fetchMessageFromMainMap` 全部 registered。
+- 实测命中：`track_suppress hit UTTracker#send` 257 次、
+  `popup_clean hit UpdateHintConfigDownloader#a` 1 次、
+  `popup_clean hit Lcx1#IDialogConflictMgr.addToQueue` 1 次（设置页诊断卡）、
+  `splash_gate` 6+1 次、`splash_request hit Lze5#attemptRequestData` 2 次、
+  `search_hotword` 4 次、`home_msg_filter hit AjxModuleBadge#updateAppBadge` 1 次、
+  `bg_utdid_upload` 1 次、`bg_awaken_report` 1 次。
+  `track.b.e/f`、`SplashLogManager`、`shake_h5`、`handlePush` /
+  `BackgroundMsgManager` 本环境无对应场景，`registered` 待观察（未伪造 hit）。
+- 回归：首页搜索框/金刚区/tab 正常；地图瓦片渲染、缩放/平移正常；
+  消息相关钩子全部 registered，未出现 Java 异常；搜索页仍为空白（顶部两张白卡），
+  与批 4 对照结论一致——模拟器无外网，AJX 资源加载失败，与模块无关。
+- 推送通道：logcat 见 `VivoPush.PushClientThread InitCommand` 正常初始化；
+  manifest 内小米/华为/荣耀/Heytap 推送组件齐全；未发现 QuietMap 相关推送
+  绑定失败。`Failed to find provider info for com.vivo.push.sdk.service.SystemPushConfig`
+  是模拟器无 Vivo 系统推送服务导致的环境噪音，与模块无关。
+- 原生 SIGSEGV 仍为已知环境问题：本次日志出现 5 次
+  `ADCrash_so: Native crash detected!!! capture signal:11`，栈位于高德
+  SecurityGuard/XcdnEngine 原生线程，**无 QuietMap / LSPosed 帧**，与批 2-4 一致。
+- 截图与日志：`E:\tmp-amap-hook\batch5-settings-1.png`（状态卡）、
+  `batch5-settings-popup.png`（弹窗/统计/摇一摇分组）、
+  `batch5-settings-2.png` / `batch5-settings-3.png`（19 键诊断卡）、
+  `batch5-home.png`（首页）、`batch5-map-zoom-pan.png`（地图缩放/平移）、
+  `batch5-search.png`（搜索页空白，无外网环境限制）、
+  `batch5-cold1-logcat.txt`、`batch5-cold2-logcat.txt`、`batch5-final-logcat.txt`。
+
+全量覆盖矩阵（与 README 一致）：
+
+| B 报告点位 | 分类 | 批号 / 开关 | 说明 |
+|---|---|---|---|
+| 1.1 `SplashScreenServiceImpl.tryShowSplashView` | 已覆盖 | 批2 `splash_request` | 不调用，展示层兜底 |
+| 1.2 `BootBizDataPreloader.canShowSplash` | 已覆盖 | 批2 `splash_gate` | 返回 `Boolean.FALSE`，走官方 NO_SPLASH |
+| 1.3 `g.o(I,String)` | 有意不做 | — | 318 指令启动关键方法，nop 风险高 |
+| 1.4 `SplashFrequencyController.a/b` | 有意不做 | — | 语义未实测，误 hook 会每次弹开屏 |
+| 1.5 `Lze5.attemptRequestData` | 已覆盖 | 批2 `splash_request` | 不调用；DexKit 字符串锚定 |
+| 1.6 `AlimamaRequestHolder.sendSplashScreen` | 已覆盖 | 批2 `splash_request` | 两个重载全挂 |
+| 1.7 `nowHasSplashItemsFromAlimama` | 有意不做 | — | 请求/展示已双断，单独改缓存判断无额外收益 |
+| 1.8 倒计时/跳过按钮 | 有意不做 | — | 保留用户主动跳过，避免误伤 |
+| 1.9 `ShakeButton` + `SplashButtonInfo` | 已覆盖 | 批2 `splash_shake` | getter 返回空串/false |
+| 1.10 `g.clickAd` | 有意不做 | — | 会禁用正常广告点击行为 |
+| 1.11 `track.b.e/f` + `SplashLogManager` | 已覆盖 | 批5 `track_suppress` | 不调用 |
+| 2.1 `BannerRequestHolder.sendList` | 已覆盖 | 批3 `home_banner` | 2/3 参重载全挂 |
+| 2.2 `BannerManager.b` | 已覆盖 | 批3 `home_banner` | 不调用 |
+| 2.3 `OperateActivityMapWidget.refreshSplashBar` | 已覆盖 | 批3 `home_operate_bar` | 不调用 |
+| 2.4 `MsgTipMapWidget.showTips` | 已覆盖 | 批3 `home_operate_bar` | 返回 false |
+| 2.5 `MessageBoxManager.getMessages` / `retrieveRemoteMessages` | 已覆盖 | 批3 `home_msg_filter` | 3 个 getMessages 重载 + 远程拉取全断 |
+| 2.5b `fetchMessageFromMainMap` | 已覆盖 | 批5 `bg_msg_fetch` | 不调用 |
+| 2.6 `IDeliveryDisplay.start` | 已覆盖 | 批3 `home_msg_filter` | 挂实现类 `Llt1` |
+| 2.7 `AjxModuleBadge` 角标 | 已覆盖 | 批3 `home_msg_filter` | 更新不调用 + 显示强制 false |
+| 2.8 `AMapHomeMsgManager` | 已覆盖（间接） | 批3 `home_msg_filter` | 入口走 getMessages / IDeliveryDisplay |
+| 3.1 `BaseSearchBar.requestPreSetWord` | 已覆盖 | 批4 `search_hotword` | 不调用 |
+| 3.2 `PreSetWordManager.e/d` | 已覆盖 | 批4 `search_hotword` | 不调用 |
+| 3.3 `ISearchService.sugg` | 有意不做 | — | 会破坏正常联想输入体验 |
+| 3.4 `logOnRecommendWordResponse` | 有意不做 | — | 纯曝光上报；保留 sugg 时属正常搜索行为 |
+| 3.5 `processSuggestNetWorkData` | 有意不做 | — | 过滤联想列表伤体验 |
+| 4.1 `AppUpgradeController.q` | 已覆盖 | 批1 `popup_upgrade` | 返回 false |
+| 4.2 `UpdateHintConfigDownloader.a` | 已覆盖 | 批5 `popup_clean` | 不调用 |
+| 4.3 `IDialogConflictMgr.addToQueue` | 已覆盖 | 批5 `popup_clean` | 挂实现类 `Lcx1`，返回 false（中风险） |
+| 4.4 `executeAction` token 过滤 | 有意不做 | — | 实测不读 `TOKEN_*`，只按 message id 分支，无法安全区分 |
+| 4.5 `executeAction` / `executeBtnAction` no-op | 有意不做 | — | 会误伤离线地图、淘宝登录、真实消息跳转；源头已断 |
+| 4.6 隐私二次弹窗 | 有意不做 | — | 合规必须 |
+| 4.7 权限索取 | 有意不做 | — | 影响定位权限流 |
+| 5.1 `AlimamaRequestHolder.sendH5Log` | 已覆盖 | 批4 `h5_ad_log` | 2/3 参重载全挂 |
+| 5.2 H5 下载插件 / `installApk` | 部分覆盖 | 批1 `h5_install_apk` | 只拦静默安装，不阻断用户主动下载 |
+| 5.3 `FloatingLayerManager.a` | 已覆盖 | 批4 `map_float_layer` | 返回空串，不注册 |
+| 5.4 开屏视频/扫光挂件 | 已覆盖（间接） | 批2 `splash_gate`/`splash_request` | 开屏不展示，挂件不出现 |
+| 5.5 `ImageTextMessageDownloader` 下载任务 | 已覆盖 | 批4 `msg_image_text` | 挂混淆 Runnable `La8` |
+| 6.1 `ze5` / `ye5` 预加载 | 已覆盖 | 批2 `splash_request` | 不调用 |
+| 6.2 `AfcTkManager.registerTkFlag` | 已覆盖 | 批1 `bg_afc_taoke` | 不调用 |
+| 6.3 `UtdidUploadTask` | 已覆盖 | 批1 `bg_utdid_upload` | upload/uploadFromCache/reqServer 全断 |
+| 6.4 utdid 生成/读取 | 有意不做 | — | 改返回值可能 NPE 或触发风控 |
+| 6.5 `UTAnalytics` 上报 | 已覆盖 | 批5 `track_suppress` | 实际总出口 `UTTracker.send/sendLog` |
+| 6.6 `track.b.e/f` + `SplashLogManager` | 已覆盖 | 批5 `track_suppress` | 不调用 |
+| 6.7 `BootBizDataPreloader` 其它预载 | 有意不做 | — | 只动 canShowSplash，保留首屏预载 |
+| 7.1a 开屏摇一摇 | 已覆盖 | 批2 `splash_shake` | getter 数据层 |
+| 7.1b `H5ShakePlugin` / `H5SensorPlugin` | 已覆盖 | 批5 `shake_h5` | 只拦 watchShake，保留 vibrate |
+| 7.1c `AMapAppStartShakePoint` / `SensorManagerHelper` | 已覆盖 | 批5 `shake_h5` | onInitialized + onSensorChanged 不调用 |
+| 7.2a `AwakenRequestHolder` | 已覆盖 | 批1 `bg_awaken_report` | 两个重载 |
+| 7.2b `openWxMiniApp` | 有意不做 | — | 仅开屏点击链路，开屏已断 |
+| 7.2c `PushAidlService` / `MiPushActivity` | 有意不做 | — | 系统推送组件，不动推送通道 |
+| 7.3a 后台消息拉取 | 已覆盖 | 批1+批5 `bg_msg_fetch` | 亮屏触发/后台拉取/主图拉取全断 |
+| 7.3b `MessageBoxManager.handlePush` | 已覆盖 | 批5 `bg_msg_fetch` | 不调用，不影响通道注册 |
+| 7.3c `PushManager` / `PushBindReceiver` | 有意不做 | — | 小米/华为/荣耀/Heytap/Vivo 推送通道必需，hook 会破坏 token 注册 |
+| 7.4 个性化推荐 | 技术不可行 | — | 云控/动态模板，无本地总开关；已从消息/搜索数据入口近似收敛 |
+| AJX 金刚区/结果页推广卡 | 技术不可行 | — | 模板包渲染，dex 只有桥接/数据入口 |
+| 画布 / WebView 广告 | 技术不可行 | — | 需 AJX/WebView 逆向，Java 层无稳定挂载点 |
+
+遗留问题与已知风险：
+
+1. `popup_clean` 的 `addToQueue` 是通用弹窗队列，可能吞掉功能引导/分享口令等业务
+   弹窗；已实测命中 1 次，默认开、可单关。若用户反馈登录失效等提示消失，先关此项。
+2. `track_suppress` 是 UT 统计总出口一刀切，个别依赖上报的「任务/积分」活动可能
+   异常；可单独关闭。
+3. `shake_h5` 与 `bg_msg_fetch` 的 `handlePush` / `BackgroundMsgManager` 在本模拟器
+   没有自然触发场景，只验证到 `registered`；需要在有网/有 H5 页面/有真实推送的
+   环境补测 hit。
+4. `Lcx1` 是混淆类名，高德升级后可能改名；check-mounts 会判 GONE，按
+   `class_interfaces` 反查新实现类即可。
+5. 原生 SIGSEGV 为模拟器 + berberis 的已知环境问题，换 arm64 真机复测前不要据此
+   判定模块稳定性。
 
 ### 批 4（v0.4.0）搜索热词 + H5 广告监测 + 地图浮层 + 图文消息素材
 

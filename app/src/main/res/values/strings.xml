@@ -27,6 +27,8 @@
     <string name="group_ui">界面</string>
     <string name="group_home">首页净化</string>
     <string name="group_search_promo">搜索与推广净化</string>
+    <string name="group_popup_track">弹窗与统计净化</string>
+    <string name="group_shake">摇一摇</string>
 
     <!-- 诊断卡 -->
     <string name="diag_title">诊断</string>
@@ -68,4 +70,10 @@
     <string name="f_map_float_layer_summary">不注册首页地图上的运营浮层挂件</string>
     <string name="f_msg_image_text_title">图文消息素材断源</string>
     <string name="f_msg_image_text_summary">不下载营销图文消息的图片与素材</string>
+    <string name="f_popup_clean_title">弹窗净化</string>
+    <string name="f_popup_clean_summary">不下载升级提示配置、不把弹窗加入首页冲突队列。中风险：可能吞掉功能引导/分享口令等业务弹窗，遇到异常可单独关闭</string>
+    <string name="f_track_suppress_title">统计上报净化</string>
+    <string name="f_track_suppress_summary">不发送开屏曝光/点击埋点与 UT 统计事件（纯统计，不影响地图功能）</string>
+    <string name="f_shake_h5_title">H5 与小程序摇一摇净化</string>
+    <string name="f_shake_h5_summary">不注册 H5/小程序摇一摇传感器，保留页面正常振动反馈</string>
 </resources>

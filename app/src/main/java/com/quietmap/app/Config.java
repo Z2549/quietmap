@@ -30,7 +30,7 @@ public final class Config {
 
     /**
      * 纯 JVM 可测入口：overrides 里缺的键用 Feature 编译期默认值。
-     * 单测的「十二钩子开关矩阵」走这里，不碰框架 API。
+     * 单测的「十九钩子开关矩阵」走这里，不碰框架 API。
      */
     static Config fromOverrides(Map<String, Boolean> overrides) {
         Config config = new Config();

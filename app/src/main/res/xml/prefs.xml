@@ -95,6 +95,26 @@
 
     </PreferenceCategory>
 
+    <PreferenceCategory android:title="@string/group_popup_track">
+
+        <com.quietmap.app.MaterialSwitchPreference
+            android:icon="@drawable/ic_ui"
+            android:key="popup_clean" />
+
+        <com.quietmap.app.MaterialSwitchPreference
+            android:icon="@drawable/ic_content"
+            android:key="track_suppress" />
+
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="@string/group_shake">
+
+        <com.quietmap.app.MaterialSwitchPreference
+            android:icon="@drawable/ic_ui"
+            android:key="shake_h5" />
+
+    </PreferenceCategory>
+
     <Preference
         android:key="diag"
         android:layout="@layout/preference_status_card"

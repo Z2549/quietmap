@@ -4,9 +4,10 @@ package com.quietmap.app;
  * 功能清单。key 同时是模块 App 内 remote prefs 的键，也是目标进程
  * getRemotePreferences("config") 的键，两处必须一致；日志里的 featureId 也用它。
  *
- * 十六个开关全部默认开启：模块定位是「装上即净」，用户只在个别场景关掉单项。
+ * 十九个开关全部默认开启：模块定位是「装上即净」，用户只在个别场景关掉单项。
  * 枚举顺序 = hook 安装顺序：开屏三键放最前（启动路径最敏感，尽早落钩），
- * 批 3 首页三键放最后（首页路径，不参与启动链路）。
+ * 批 3 首页三键随后（首页路径，不参与启动链路），批 5 的弹窗/统计/摇一摇
+ * 三键放最后（收尾净化，不参与启动链路）。
  */
 public enum Feature {
 
@@ -46,7 +47,17 @@ public enum Feature {
     /** 地图运营浮层断源（FloatingLayerManager#a 返回空串，不注册浮层）。 */
     MAP_FLOAT_LAYER("map_float_layer", R.string.f_map_float_layer_title, R.string.f_map_float_layer_summary),
     /** 营销图文消息素材下载断源（ImageTextMessageDownloader 下载任务不执行）。 */
-    MSG_IMAGE_TEXT("msg_image_text", R.string.f_msg_image_text_title, R.string.f_msg_image_text_summary);
+    MSG_IMAGE_TEXT("msg_image_text", R.string.f_msg_image_text_title, R.string.f_msg_image_text_summary),
+    /**
+     * 弹窗净化（升级提示配置 + 首页弹窗冲突队列）：
+     * UpdateHintConfigDownloader#a 不调用、IDialogConflictMgr 实现类
+     * Lcx1#addToQueue 返回 false。后者中风险（可能误伤业务弹窗），可单关。
+     */
+    POPUP_CLEAN("popup_clean", R.string.f_popup_clean_title, R.string.f_popup_clean_summary),
+    /** 统计上报净化（开屏埋点 track.b e/f + SplashLogManager + UTTracker send/sendLog）。 */
+    TRACK_SUPPRESS("track_suppress", R.string.f_track_suppress_title, R.string.f_track_suppress_summary),
+    /** H5/小程序摇一摇净化（H5ShakePlugin watchShake + H5SensorPlugin + 小程序扩展点）。 */
+    SHAKE_H5("shake_h5", R.string.f_shake_h5_title, R.string.f_shake_h5_summary);
 
     public final String key;
     public final int titleRes;

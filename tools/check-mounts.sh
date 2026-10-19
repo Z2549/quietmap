@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 挂载点体检：高德升级后跑这个，30 秒内知道十六个钩子的挂载点还活着几个。
+# 挂载点体检：高德升级后跑这个，30 秒内知道十九个钩子的挂载点还活着几个。
 #
 # 用法（Git Bash）：
 #   bash tools/check-mounts.sh [apk路径] [缓存输出目录]
@@ -99,7 +99,21 @@ Lcom/autonavi/bundle/uitemplate/ajx/ModuleSlideContainer;->responsePreSetWords(L
 Lcom/autonavi/minimap/alimama/AlimamaRequestHolder;->sendH5Log(Lcom/autonavi/minimap/alimama/param/H5LogRequest;Lcom/amap/bundle/aosservice/response/AosResponseCallback;)V|h5_ad_log H5广告监测(2参重载)
 Lcom/autonavi/minimap/alimama/AlimamaRequestHolder;->sendH5Log(Lcom/autonavi/minimap/alimama/param/H5LogRequest;Lcom/autonavi/minimap/falcon/base/a;Lcom/amap/bundle/aosservice/response/AosResponseCallback;)V|h5_ad_log H5广告监测(3参重载)
 Lcom/autonavi/minimap/basemap/floatinglayer/FloatingLayerManager;->a(Ljava/lang/String;Ljava/lang/String;Lorg/json/JSONObject;Lcom/autonavi/minimap/basemap/floatinglayer/FloatingLayerManager$b;)Ljava/lang/String;|map_float_layer 运营浮层注册(返回"")
-La8;->run()V|msg_image_text 图文素材下载任务(混淆类,字符串锚定,SIG监控)'
+La8;->run()V|msg_image_text 图文素材下载任务(混淆类,字符串锚定,SIG监控)
+Lcom/amap/bundle/appupgrade/config/downloader/UpdateHintConfigDownloader;->a()V|popup_clean 升级提示配置下载
+Lcx1;->addToQueue(Lcom/autonavi/bundle/amaphome/model/DialogConflictInfo;)Z|popup_clean 首页弹窗冲突队列(接口实现类,混淆类)
+Lcom/autonavi/minimap/track/b;->e(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lcom/autonavi/minimap/entity/SplashButtonInfo;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Le72;ZLjava/lang/String;)V|track_suppress 开屏曝光埋点
+Lcom/autonavi/minimap/track/b;->f(Ljava/lang/String;Ljava/lang/String;Ljava/util/ArrayList;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ZLjava/lang/String;Lcom/autonavi/minimap/entity/SplashButtonInfo;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ZLjava/lang/String;Ljava/lang/String;ILjava/lang/String;Le72;ZLjava/lang/String;)V|track_suppress 开屏埋点聚合+三方监测
+Lcom/autonavi/minimap/track/SplashLogManager;->a(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Z)V|track_suppress 开屏日志上传
+Lcom/ut/mini/UTTracker;->send(Ljava/util/Map;)V|track_suppress UT统计总出口
+Lcom/ut/mini/UTTracker;->sendLog(Ljava/util/Map;ILjava/util/List;)V|track_suppress UT落盘/转发入口
+Lcom/alipay/mobile/nebulacore/plugin/H5ShakePlugin;->handleEvent(Lcom/alipay/mobile/h5container/api/H5Event;Lcom/alipay/mobile/h5container/api/H5BridgeContext;)Z|shake_h5 H5摇一摇(只拦watchShake)
+Lcom/alipay/mobile/aompdevice/shake/h5plugin/H5SensorPlugin;->registerGyroscopeListener(Lcom/alipay/mobile/h5container/api/H5Event;)Z|shake_h5 H5陀螺仪注册
+Lcom/autonavi/nebulax/extensions/point/AMapAppStartShakePoint;->onInitialized()V|shake_h5 小程序摇一摇初始化
+Lcom/autonavi/nebulax/utils/SensorManagerHelper;->onSensorChanged(Landroid/hardware/SensorEvent;)V|shake_h5 摇一摇监听回调
+Lcom/autonavi/minimap/bundle/msgbox/util/MessageBoxManager;->handlePush(Ljava/lang/String;)V|bg_msg_fetch 推送消息处理入口
+Lcom/autonavi/minimap/bundle/msgbox/push/BackgroundMsgManager;->a(Lcom/autonavi/minimap/bundle/msgbox/push/IBackgroundMsgFetchListener;)V|bg_msg_fetch 后台营销消息拉取
+Lcom/autonavi/minimap/bundle/msgbox/util/MessageBoxManager;->fetchMessageFromMainMap(IZLcom/autonavi/minimap/bundle/msgbox/api/IMsgboxService$MainMapUIUpdater;)V|bg_msg_fetch 主图消息拉取包装'
 
 echo
 echo "APK: $APK"
@@ -160,7 +174,7 @@ total=$((ok + sig + gone))
 echo
 echo "汇总: 共 $total 项 — OK $ok / SIG $sig / GONE $gone"
 if [ "$sig" -eq 0 ] && [ "$gone" -eq 0 ]; then
-  echo "十六钩子挂载点全部存活。"
+  echo "十九钩子挂载点全部存活。"
 else
   echo "OK=还在；SIG=类在但签名/锚点变了；GONE=类没了。变的项要重新用 dexsql 定位。"
 fi
