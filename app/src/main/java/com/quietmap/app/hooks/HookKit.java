@@ -161,4 +161,26 @@ final class HookKit {
             }
         };
     }
+
+    /**
+     * 常量方法：直接返回给定装箱常量，不 proceed。
+     * 用于对象/字符串返回类型（如 java.lang.Boolean、String）——
+     * 常量必须非 null：调用方可能拆箱或直接解引用。
+     * 回退路径（catch）proceed 恰好一次放行原逻辑，fail-open。
+     */
+    static XposedInterface.Hooker constValue(final XposedModule module, final Feature f,
+                                             final String detail, final Object value) {
+        return new XposedInterface.Hooker() {
+            @Override
+            public Object intercept(XposedInterface.Chain chain) throws Throwable {
+                try {
+                    hit(module, f, detail);
+                    return value;
+                } catch (Throwable t) {
+                    error(module, f.key + " intercept error " + detail, t);
+                    return chain.proceed();
+                }
+            }
+        };
+    }
 }

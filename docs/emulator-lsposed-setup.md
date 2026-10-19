@@ -25,7 +25,7 @@
 | AVD 注册目录 | `D:\Android\avd`（`quietmap-test.ini` 在此） |
 | AVD 实体目录 | `E:\tmp-amap-hook\avd\quietmap-test.avd`（见下方磁盘坑） |
 | userdata | `E:\tmp-amap-hook\avd-data\userdata-qemu.img`（12G） |
-| 镜像 | `system-images;android-35;default;x86_64`（AOSP 无 GMS）→ **待换 google_apis**（见 §2） |
+| 镜像 | `system-images;android-35;google_apis;x86_64` r9（**已换装并验证**，含 ARM 翻译，见 §2） |
 | 配置 | Pixel 6 皮肤，RAM 4096M，data 12G，GPU enabled/host，x86_64，API 35 |
 | 加速 | WHPX（`Windows Hypervisor Platform accelerator is operational`），emulator-check accel=0（正常，WHPX 在位） |
 | 启动 | `adb devices` 见 `emulator-5554`，`sys.boot_completed=1`，冷启动约 46s，已进 AOSP 桌面 |
@@ -55,7 +55,7 @@ Failure [INSTALL_FAILED_NO_MATCHING_ABIS: Failed to extract native libraries, re
 ```
 
 - APK 原生库只有 `lib/arm64-v8a/`（72 个 so）；default 镜像 `ro.product.cpu.abilist=x86_64`，无 ARM 翻译。
-- **对策**：安装 `system-images;android-35;google_apis;x86_64`（含 `libndk_translation`，abilist 会带 `arm64-v8a`/`armeabi-v7a`）。Google Play 镜像也带翻译，但 google_apis 更适合 root/调试（无 GMS 约束）。
+- **对策（已执行并验证）**：安装 `system-images;android-35;google_apis;x86_64`（含 `libndk_translation`）。实测换装后 `ro.product.cpu.abilist=x86_64,arm64-v8a`，`/system/lib64/libndk_translation.so` 在位，高德安装 **Success**、冒烟进首页无闪退。
 - 换镜像操作：改 `config.ini` 的 `image.sysdir.1=system-images\android-35\google_apis\x86_64\`，删 userdata 冷启动（避免两镜像状态残留）。
 - 校验命令（换完必查）：
   ```bash
@@ -84,7 +84,7 @@ API 35 镜像为单 ramdisk（无 vendor_boot）。所以 **Magisk「刷 boot」
      --cmdline "$(cat kernel_cmdline.txt)" --base 0x8000 --pagesize 4096 \
      --header_version 2 -o boot.img
    ```
-   （header_version/base 以 MagiskOnEmulator 脚本参数为准，各 API 略有差异；脚本已封装。）
+   （实施勘误 2026-10-19：`--header_version 2` 要求 DTB 而 AVD 无 DTB，实际用 **`--header_version 0`** 修补成功；base 0x8000 / pagesize 4096 不变。）
 3. `adb -s emulator-5554 push boot.img /sdcard/`，安装 **Magisk-v30.7.apk**（已下载，见 §5），Magisk → 安装 → **选择并修补一个文件** → 选 boot.img → 产出 `/sdcard/Download/magisk_patched-*.img`。
 4. `adb pull` 取回，**在模拟器 shell 里用 magiskboot 解包**：
    - magiskboot 来源：Magisk APK 内 `lib/x86_64/libmagiskboot.so`（实测 943,848 B，就是 magiskboot 可执行文件换名）。unzip 出来 push 到 `/data/local/tmp/magiskboot`，`chmod +x` 后 `./magiskboot unpack magisk_patched.img` 取出 `ramdisk`。
@@ -161,7 +161,9 @@ KernelSU 需要 GKI 内核（钩子/补丁），AVD 的 `kernel-ranchu` 预编�
 | `gh-proxy.com` | **不通**（连接失败 000） | — |
 | `mirror.ghproxy.com` | **死**（530） | — |
 | `ghfast.top` | **通**（备用首选） | `https://ghfast.top/<原URL>`，实测哈希与直连一致 |
-| `dl.google.com`（sdkmanager） | 通但**慢** | system-image zip 下载耗时长（见 §7） |
+| `dl.google.com`（sdkmanager） | 通但**慢**（约 1.2MB/s） | system-image zip 1,738,815,903 B，走 sdkmanager 预计 25min+ |
+| `mirrors.cloud.tencent.com/AndroidSDK/` | **通且快**（23.9MB/s） | `…/sys-img/google_apis/x86_64-35_r09.zip` 与官方**同尺寸同内容**，72s 下完；sha256 `c67b9ba0ff5bc0eb6d046871bfa228af14d4d47b02f0cdae94f048e511b7566e`。**system-image 下载首选**。手动 unzip 到 `system-images\android-35\google_apis\` 即可（zip 顶层是 `x86_64/`，含 source.properties，avdmanager/emulator 可识别；只是 sdkmanager --list_installed 不显示，无碍） |
+| `mirrors.tuna.tsinghua.edu.cn` / `mirrors.aliyun.com`（AndroidSDK） | 无此路径（404） | 不含 sys-img |
 
 获取版本列表的推荐命令：
 
@@ -198,9 +200,9 @@ LSPatch（LSPosed/LSPatch v0.6，manager APK 7.2MB + jar 10.9MB）原理：把 L
 | # | 步骤 | 预估耗时 | 状态 |
 |---|---|---|---|
 | 1 | AVD 现状就绪（quietmap-test，WHPX，桌面） | — | **已完成**（冷启动 46s） |
-| 2 | 装 `system-images;android-35;google_apis;x86_64` | 15–40min（dl.google.com 慢） | 进行中/待执行 |
-| 3 | 切镜像 + 清 userdata + 冷启动 + 验 abilist 含 arm64 | 5min | 待执行 |
-| 4 | `adb install` 高德 + `am start` 冒烟（不闪退进首页） | 5min | 待执行（镜像换好后） |
+| 2 | 装 `system-images;android-35;google_apis;x86_64` | 2min（腾讯镜像 24MB/s） | **已完成** |
+| 3 | 切镜像 + 清 userdata + 冷启动 + 验 abilist 含 arm64 | 5min | **已完成**（abilist=x86_64,arm64-v8a，冷启动 59s） |
+| 4 | `adb install` 高德 + `am start` 冒烟（不闪退进首页） | 5min | **已完成**（见 §7.1） |
 | 5 | 备份 ramdisk.img + 组装 boot.img（mkbootimg） | 10min | 待批准 |
 | 6 | Magisk app 修补 boot.img + magiskboot 回填 ramdisk | 15–20min | 待批准 |
 | 7 | 冷启动验 Magisk + 装 LSPosed（Vector zygisk）模块 | 10min | 待批准 |
@@ -215,6 +217,14 @@ adb -s emulator-5554 shell am start -n com.autonavi.minimap/com.autonavi.map.act
 # 无该组件名时用: adb shell cmd package resolve-activity --brief com.autonavi.minimap
 ```
 
+### 7.1 高德冒烟实测记录（2026-10-19，17.01.0.2012 @ quietmap-test）
+
+- 安装：`Success`（default 镜像下同命令报 `INSTALL_FAILED_NO_MATCHING_ABIS`，换 google_apis 后通过）。
+- 启动：`SplashActivity` 正常拉起；首启依次出现隐私协议（Welcome to Amap）→ 定位权限 → 通知权限 → 桌面小组件添加询问（launcher AddItemActivity），逐项放行后进入首页。
+- 稳定性：全程无 FATAL / am_crash / ANR；`com.autonavi.minimap` 主进程 + `:locationservice` / `:widgetProvider` 多进程稳定存活。
+- 首页状态：3D 地球地图渲染正常，搜索框「查找地点、公交、地铁」、功能宫格（打车/订酒店/驾车/公交/车主服务…）、底部 tab（首页/探索/对话/打车/未登录）、天气组件均就位。截图存 `E:\tmp-amap-hook\amap-smoke1..5.png`。
+- 注意：首启弹窗顺序为 隐私 → 定位 → 通知 → 小组件，自动化冒烟时建议用 `uiautomator dump` 取按钮坐标（文本会随系统语言变化，本机模拟器是英文系统）。
+
 ## 8. 已知坑汇总
 
 1. **D 盘空间**：userdata 检查看 AVD 目录所在盘；`.avd` 要放大盘（见 §1）。
@@ -227,6 +237,11 @@ adb -s emulator-5554 shell am start -n com.autonavi.minimap/com.autonavi.map.act
 8. **多设备**：adb 上有无线真机，命令一律 `-s emulator-5554`。
 9. **Magisk 更新叠加**：每次从原厂 ramdisk.img 重打，勿在已修补镜像上二次修补。
 10. **`-writable-system` 与快照不兼容**，且不是装 Magisk 的手段（见 §3.3）。
+11. **magiskd 两雷（实施实测）**：① `magisk --sqlite 'PRAGMA ...'` 会令 magiskd SIGSEGV（简单 UPDATE/SELECT 安全，PRAGMA 禁用）；② 手动 `magisk --service` 拉起的 daemon 会因 stub.apk 被首个 daemon 读取后删除而误判 "APK signature mismatch" 并**自动卸载 Magisk app**——恢复=重启模拟器（magiskinit 重新展开 stub.xz）+ 重装 app。别手动重启 magiskd。
+12. **su 授权**：首次超时自动拒绝 uid 2000，需 `su -c "magisk --sqlite 'UPDATE policies SET policy=2 WHERE uid=2000'"` 常驻放行。
+13. **Vector Manager 不自装**：包名 `org.matrix.vector.manager`（不叫 org.lsposed），刷完模块需手动从 zip 内 manager.apk 安装。
+14. **ramdisk 压缩格式勘误**：API 35 google_apis 原厂 ramdisk 是 **lz4_lg（magic `02214c18`）**，不是通用 lz4 frame（04224d18）；magiskboot `unpack -n` repack 保留原格式即可，别手动重压。
+15. **AVD 的 initrd 是派生产物**（= system-image ramdisk.img 前段 + bootconfig 尾），每次启动自动再生成；补丁目标永远是 `system-images\android-35\google_apis\x86_64\ramdisk.img`。
 
 ---
 

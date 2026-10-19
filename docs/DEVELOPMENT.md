@@ -14,16 +14,20 @@ app/src/main/java/com/quietmap/app/
 ├── ServiceBridge.java         XposedService 绑定（丢占位 binder + SendBinder 补投）
 ├── ReportProvider.java        诊断回传 ContentProvider（高德进程 → 模块 App）
 ├── MainActivity.java          设置入口（Material 3，点标题弹关于）
-├── SettingsFragment.java      设置页（状态卡 / 六开关 / 诊断卡 / 页脚）
+├── SettingsFragment.java      设置页（状态卡 / 九开关 / 诊断卡 / 页脚）
 ├── MaterialSwitchPreference.java
+├── dexkit/
+│   ├── Anchors.java           混淆类锚点定义（"不发送请求"）
+│   └── DexKitLocator.java     运行时字符串锚定定位（抗混淆改名，失败 fail-open）
 └── hooks/
     ├── HookKit.java           定位与 hook 的公共封装（黑名单、fail-open、匿名 Hooker）
     ├── Hooks.java             按开关注册 hook
     ├── Report.java            命中回传（每 3 秒快照上报）
-    └── BgMsgFetchHooks / BgAwakenReportHooks / BgAfcTaokeHooks /
+    └── SplashGateHooks / SplashRequestHooks / SplashShakeHooks /
+        BgMsgFetchHooks / BgAwakenReportHooks / BgAfcTaokeHooks /
         BgUtdidUploadHooks / H5InstallApkHooks / PopupUpgradeHooks
 app/src/main/resources/META-INF/xposed/   模块声明三件套
-app/src/test/java/                        纯 JVM 单测（Feature 映射 / 开关矩阵）
+app/src/test/java/com/quietmap/app/        纯 JVM 单测（Feature 映射 / 开关矩阵）
 tools/check-mounts.sh                     挂载点体检（dexsql）
 ```
 
@@ -52,8 +56,9 @@ compileSdk 只能用 36（已实测 36 可用；需要 37 时先把安装目录�
 ./gradlew test
 ```
 
-覆盖两块：`FeatureTest`（六开关 key ↔ 编译期默认值映射，key 一旦改动会断掉用户已存的
-开关状态，测试锁死它）、`HookSwitchMatrixTest`（六钩子开关矩阵：每开关独立、全开、全关）。
+覆盖两块：`FeatureTest`（九个开关 key ↔ 编译期默认值映射，key 一旦改动会断掉用户已存的
+开关状态，测试锁死它）、`HookSwitchMatrixTest`（九个钩子开关矩阵：每开关独立、全开、全关，
+含批 2 三个开屏键的独立项）。
 
 ## 挂载点体检
 
@@ -71,7 +76,9 @@ bash tools/check-mounts.sh "E:\download\base(5).apk"
 - `SIG` — 类在但方法签名变了（改名 / 参数变化）
 - `GONE` — 类没了（混淆名变了）
 
-末尾汇总 OK/SIG/GONE 计数。SIG/GONE 的项要先用 dexsql 重新定位：
+混淆类挂载点（`Lze5#attemptRequestData`）额外按方法体字符串锚点复核：签名在但
+`"不发送请求"` 锚点串丢了也判 `SIG`（运行时 DexKit 会定位失败），输出带 `[锚点OK]` 标记。
+末尾汇总 OK/SIG/GONE 计数（批 2 后共 18 项）。SIG/GONE 的项要先用 dexsql 重新定位：
 
 ```bash
 E:/tools/dexsql/dexsql.exe query --input <apk> \
@@ -79,8 +86,10 @@ E:/tools/dexsql/dexsql.exe query --input <apk> \
 ```
 
 重新定位时优先找非混淆锚点（Activity、SPI 接口、字符串常量），再顺着调用链往下找，
-不要凭类名相似下结论。定位结果改 hooks/ 下对应类的常量，并同步 `tools/check-mounts.sh`
-的挂载点清单（完整签名与 dexsql 的 `methods.descriptor` 列同构）。
+不要凭类名相似下结论。混淆类先用 `method_strings` 按方法体特征串反查（如
+`WHERE value LIKE '%不发送请求%'`），拿到类名/方法名后同步 `hooks/` 下对应类的常量
+（`SplashRequestHooks.ATTEMPT_CLASS_NAMES`）与 `tools/check-mounts.sh` 的挂载点清单
+（完整签名与 dexsql 的 `methods.descriptor` 列同构）。
 
 ## 稳定性规范（强制）
 
@@ -164,9 +173,10 @@ gh release create 1-0.1.0 quietmap-0.1.0.apk --title "0.1.0" --notes "<更新说
 
 ## 兼容性声明
 
-仅保证高德 17.01.0.2012，其它版本尽力而为。六个挂载点均非混淆类（`com.autonavi.*`
+仅保证高德 17.01.0.2012，其它版本尽力而为。挂载点绝大多数是非混淆类（`com.autonavi.*`
 业务包 / 淘宝、支付宝 SDK 包），升级后大概率仍在，但签名可能变——先跑
-`tools/check-mounts.sh` 再说。
+`tools/check-mounts.sh` 再说。唯一混淆挂载点 `Lze5#attemptRequestData` 由 DexKit
+字符串锚定兜底，锚点失效时 check-mounts 会判 SIG 并提示换锚。
 
 ## GPL 红线
 
@@ -174,3 +184,58 @@ gh release create 1-0.1.0 quietmap-0.1.0.apk --title "0.1.0" --notes "<更新说
 没有下载、打开或摘抄它们的任何内容。所有 hook 目标签名只来自两处——任务清单的调研结论
 与 `E:/tools/dexsql/dexsql.exe` 对目标 APK 的实测；实测不一致时一律以 dexsql 为准并在
 报告注明。同理，调试中也不要把它们的产物放进本仓库。
+
+## 变更记录
+
+### 批 2（v0.2.0）开屏一条龙
+
+三个新开关（默认全开），共 7 个挂载点：
+
+| 开关 | 挂载点 | 动作 |
+|---|---|---|
+| `splash_gate` | `BootBizDataPreloaderImpl#canShowSplash()` | return `java.lang.Boolean.FALSE`（走官方 `SplashFinishReason.NO_SPLASH` 分支） |
+| `splash_request` | `SplashScreenServiceImpl#tryShowSplashView(I,String)` | 不调用（展示层兜底，skipVoid） |
+| `splash_request` | `AlimamaRequestHolder#sendSplashScreen` 两个重载 | 不调用 |
+| `splash_request` | `Lze5;->attemptRequestData(IZ)V`（混淆类） | 不调用；DexKit 按方法体 `"不发送请求"` 锚定，兜底类名列表 `["ze5"]` |
+| `splash_shake` | `SplashButtonInfo#getShakeGuide/getShakeTip` | return `""` |
+| `splash_shake` | `SplashButtonInfo#isSpeedStrict()` | return `false` |
+
+实现要点：
+
+- `canShowSplash` 返回类型是 **`java.lang.Boolean` 对象**，绝不能返回 null（调用方会拆箱
+  NPE），一律返回装箱常量 `Boolean.FALSE`（新增 `HookKit.constValue` Hooker）。
+- `Lze5` 混淆类锚定参考 cloudmusictool 的 dexkit 包模式，按 2.3.0 实测 API 重写：
+  `DexKitLocator.findMethod(cl, null, "attemptRequestData", void.class, {int, boolean}, "不发送请求")`。
+  实测约 1.4s 完成锚定；`libdexkit.so` 从模块 `nativeLibraryDir` 按绝对路径加载
+  （`useLegacyPackaging = true`），失败即回退类名列表，再失败记 skip（fail-open）。
+- 锚点消歧：`"不发送请求"` 同时出现在 `Lye5;->run()V`，故第二次全锚点查询必须用
+  返回类型 `void` + 参数类型 `(int, boolean)` 强校验后才接受候选。
+
+dexsql 与调研清单的两处出入（一律以 dexsql 为准）：
+
+1. `sendSplashScreen` 3 参重载的 falcon 回调基类是 `com.autonavi.minimap.falcon.base.a`，
+   清单写的 `com.amap.bundle.falcon.base.a` 在该 APK 里不存在（不 hook 不会崩，但会
+   findClass 失败记 skip）。
+2. `attemptRequestData` 的 Java 类名是默认包 `ze5`（dex 描述符 `Lze5;`），
+   `Class.forName("ze5", false, cl)` 可直接命中。
+
+### 开屏红线（批 2 起强制执行）
+
+- 只做「不调用 / 返回常量」；**禁止 hook `com.autonavi.minimap.g`（g.o 318 指令大方法）
+  和 `SplashFrequencyController.a/b`**（语义未实测，误 hook 会每次弹开屏）。
+- 一律走 `skipVoid` / 常量 Hooker 模式（PROTECTIVE、匿名类、intercept 整段
+  try/catch(Throwable)、proceed 至多一次、框架类黑名单、fail-open）。
+- 同一方法只挂一个 hook。
+
+### 已知环境问题（非本模块缺陷）
+
+模拟器（x86_64 + berberis 翻译 + swiftshader）上高德 17.01.0.2012 在启动约 10-40 秒后
+必报一次 `ADCrash_so: Native crash detected!!! capture signal:11`，崩溃栈位于高德自己的
+`XcdnEngine`（`flat_models.cpp`）与 `SecurityGuardMainPlugin` 原生插件，**无 QuietMap /
+LSPosed 帧**。已用两组对照证明与模块无关：
+
+- 卸载模块、纯原版高德同样崩（`batch2-ctrlC-logcat.txt`，`batch2-vanilla3-logcat.txt`）；
+- 关掉三个开屏键只留批 1 钩子，同样崩（`batch2-F1/F1b-logcat.txt`）。
+
+首页功能（搜索框、金刚区、tab）实测正常，崩溃发生在后台原生线程，不影响开屏去广告结论。
+复测或出正式版前建议换 arm64 镜像（原生跑，无 berberis 翻译层）再确认一次。

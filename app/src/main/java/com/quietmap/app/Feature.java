@@ -4,10 +4,17 @@ package com.quietmap.app;
  * 功能清单。key 同时是模块 App 内 remote prefs 的键，也是目标进程
  * getRemotePreferences("config") 的键，两处必须一致；日志里的 featureId 也用它。
  *
- * 六个开关全部默认开启：模块定位是「装上即净」，用户只在个别场景关掉单项。
+ * 九个开关全部默认开启：模块定位是「装上即净」，用户只在个别场景关掉单项。
+ * 枚举顺序 = hook 安装顺序：开屏三键放最前（启动路径最敏感，尽早落钩）。
  */
 public enum Feature {
 
+    /** 开屏闸门（canShowSplash 返回 Boolean.FALSE + tryShowSplashView 不调用，双保险）。 */
+    SPLASH_GATE("splash_gate", R.string.f_splash_gate_title, R.string.f_splash_gate_summary),
+    /** 开屏广告请求断源（sendSplashScreen + Lze5#attemptRequestData 不调用）。 */
+    SPLASH_REQUEST("splash_request", R.string.f_splash_request_title, R.string.f_splash_request_summary),
+    /** 开屏摇一摇禁用（SplashButtonInfo 摇一摇字段返回空/false）。 */
+    SPLASH_SHAKE("splash_shake", R.string.f_splash_shake_title, R.string.f_splash_shake_summary),
     /** 后台拉取营销消息 + 亮屏触发源（MessageBoxManager + BackgroundMsgScreenReceiver）。 */
     BG_MSG_FETCH("bg_msg_fetch", R.string.f_bg_msg_fetch_title, R.string.f_bg_msg_fetch_summary),
     /** 唤起端上报（AwakenRequestHolder#sendAwakenPage）。 */

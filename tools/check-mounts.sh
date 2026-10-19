@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 挂载点体检：高德升级后跑这个，30 秒内知道六个钩子的挂载点还活着几个。
+# 挂载点体检：高德升级后跑这个，30 秒内知道九个钩子的挂载点还活着几个。
 #
 # 用法（Git Bash）：
 #   bash tools/check-mounts.sh [apk路径] [缓存输出目录]
@@ -18,6 +18,8 @@
 #
 # 挂载点清单与 app/src/main/java/com/quietmap/app/hooks/ 下的常量一一对应，
 # 完整签名取自 dexsql 对高德 17.01.0.2012 的实测。
+# 混淆类挂载点（Lze5#attemptRequestData）另有方法体字符串锚点监控：
+# 签名在但锚点串丢了也判 SIG（运行时 DexKit 按锚点定位会失败）。
 
 set -u
 
@@ -60,7 +62,15 @@ Lcom/ta/audid/upload/UtdidUploadTask;->upload()V|bg_utdid_upload 指纹上传
 Lcom/ta/audid/upload/UtdidUploadTask;->uploadFromCache()V|bg_utdid_upload 指纹缓存上传
 Lcom/ta/audid/upload/UtdidUploadTask;->reqServer(Ljava/lang/String;)Z|bg_utdid_upload 服务端交换
 Lcom/alipay/mobile/common/info/DeviceInfo;->installApk(Ljava/lang/String;)V|h5_install_apk H5静默安装
-Lcom/amap/bundle/appupgrade/AppUpgradeController;->q(Lcom/amap/bundle/appupgrade/e;ZZ)Z|popup_upgrade 升级弹窗'
+Lcom/amap/bundle/appupgrade/AppUpgradeController;->q(Lcom/amap/bundle/appupgrade/e;ZZ)Z|popup_upgrade 升级弹窗
+Lcom/autonavi/bundle/amaphome/impl/BootBizDataPreloaderImpl;->canShowSplash()Ljava/lang/Boolean;|splash_gate 开屏闸门(返回Boolean.FALSE走NO_SPLASH分支)
+Lcom/autonavi/minimap/impl/SplashScreenServiceImpl;->tryShowSplashView(ILjava/lang/String;)V|splash_gate 展示层兜底(不调用)
+Lcom/autonavi/minimap/alimama/AlimamaRequestHolder;->sendSplashScreen(Lcom/autonavi/minimap/alimama/param/SplashScreenRequest;Lcom/autonavi/minimap/falcon/base/a;Lcom/amap/bundle/aosservice/response/AosResponseCallback;)V|splash_request 开屏广告请求(3参,dexsql实测falcon包名)
+Lcom/autonavi/minimap/alimama/AlimamaRequestHolder;->sendSplashScreen(Lcom/autonavi/minimap/alimama/param/SplashScreenRequest;Lcom/amap/bundle/aosservice/response/AosResponseCallback;)V|splash_request 开屏广告请求(2参重载)
+Lze5;->attemptRequestData(IZ)V|splash_request 开屏广告请求调度(混淆类,字符串锚定"不发送请求",SIG监控)
+Lcom/autonavi/minimap/entity/SplashButtonInfo;->getShakeGuide()Ljava/lang/String;|splash_shake 摇一摇引导清空
+Lcom/autonavi/minimap/entity/SplashButtonInfo;->getShakeTip()Ljava/lang/String;|splash_shake 摇一摇提示清空
+Lcom/autonavi/minimap/entity/SplashButtonInfo;->isSpeedStrict()Z|splash_shake 摇一摇速度严格关'
 
 echo
 echo "APK: $APK"
@@ -89,7 +99,20 @@ while IFS='|' read -r full feat; do
     sig=$((sig + 1))
     continue
   fi
-  printf '%-8s %-78s %s\n' "OK" "${full#*->}" "$feat"
+  # 混淆类字符串锚定 SIG 监控：签名在但方法体锚点丢了，运行时 DexKit 会定位失败
+  anchor_note=""
+  case "$full" in
+    'Lze5;->attemptRequestData(IZ)V')
+      anchor_hit=$(count "SELECT count(*) FROM method_strings WHERE method='$full' AND value LIKE '%不发送请求%'")
+      if [ "${anchor_hit:-0}" = "0" ]; then
+        printf '%-8s %-78s %s\n' "SIG" "${full#*->}  (锚点字符串丢失,需换锚)" "$feat"
+        sig=$((sig + 1))
+        continue
+      fi
+      anchor_note=" [锚点OK]"
+      ;;
+  esac
+  printf '%-8s %-78s %s\n' "OK" "${full#*->}$anchor_note" "$feat"
   ok=$((ok + 1))
 done <<EOF
 $MOUNTS
@@ -99,7 +122,7 @@ total=$((ok + sig + gone))
 echo
 echo "汇总: 共 $total 项 — OK $ok / SIG $sig / GONE $gone"
 if [ "$sig" -eq 0 ] && [ "$gone" -eq 0 ]; then
-  echo "六钩子挂载点全部存活。"
+  echo "九钩子挂载点全部存活。"
 else
-  echo "OK=还在；SIG=类在但签名变了；GONE=类没了。变的项要重新用 dexsql 定位。"
+  echo "OK=还在；SIG=类在但签名/锚点变了；GONE=类没了。变的项要重新用 dexsql 定位。"
 fi

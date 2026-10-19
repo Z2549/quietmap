@@ -21,6 +21,7 @@
     <string name="status_remote_fail">remote prefs：不可用，开关暂存本地、当前不生效</string>
 
     <!-- 分组 -->
+    <string name="group_splash">开屏净化</string>
     <string name="group_bg">后台净化</string>
     <string name="group_data">数据层断源</string>
     <string name="group_ui">界面</string>
@@ -33,6 +34,12 @@
     <string name="footer_limits">仅保证高德 17.01.0.2012，其它版本尽力而为。</string>
 
     <!-- 功能标题与说明 -->
+    <string name="f_splash_gate_title">开屏广告拦截</string>
+    <string name="f_splash_gate_summary">开屏广告不再展示，启动直接进首页（双保险闸门）</string>
+    <string name="f_splash_request_title">开屏广告请求断源</string>
+    <string name="f_splash_request_summary">不发起开屏广告请求，省流量省电</string>
+    <string name="f_splash_shake_title">摇一摇开屏禁用</string>
+    <string name="f_splash_shake_summary">清空摇一摇引导与提示，摇一摇无从触发</string>
     <string name="f_bg_msg_fetch_title">后台消息拉取净化</string>
     <string name="f_bg_msg_fetch_summary">断开亮屏时后台拉取营销消息，并掐掉亮屏触发源</string>
     <string name="f_bg_awaken_report_title">唤端上报断源</string>

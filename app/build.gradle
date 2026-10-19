@@ -24,8 +24,8 @@ android {
         applicationId "io.github.yigenhuobah.quietmap"
         minSdk 29
         targetSdk 36
-        versionCode 1
-        versionName "0.1.0"
+        versionCode 2
+        versionName "0.2.0"
     }
 
     signingConfigs {
@@ -76,6 +76,14 @@ android {
     buildFeatures {
         buildConfig false
     }
+
+    packaging {
+        jniLibs {
+            // DexKit 的 libdexkit.so 必须解压到 nativeLibraryDir 后按绝对路径
+            // System.load（宿主进程 java.library.path 里没有模块 so 目录）。
+            useLegacyPackaging = true
+        }
+    }
 }
 
 // libxposed service/interface 102 的 AAR 元数据声明 minCompileSdk 37，
@@ -108,4 +116,8 @@ dependencies {
     implementation 'androidx.preference:preference:1.2.1'
 
     testImplementation 'junit:junit:4.13.2'
+
+    // splash_request 的 Lze5.attemptRequestData 混淆类锚定（dexkit/ 包），
+    // 打进模块 APK 供宿主进程内运行时扫描，native so 见 packaging.jniLibs。
+    implementation 'org.luckypray:dexkit:2.3.0'
 }

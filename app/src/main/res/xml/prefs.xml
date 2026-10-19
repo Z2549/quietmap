@@ -7,6 +7,22 @@
         android:selectable="false"
         android:title="@string/status_title" />
 
+    <PreferenceCategory android:title="@string/group_splash">
+
+        <com.quietmap.app.MaterialSwitchPreference
+            android:icon="@drawable/ic_ui"
+            android:key="splash_gate" />
+
+        <com.quietmap.app.MaterialSwitchPreference
+            android:icon="@drawable/ic_ads"
+            android:key="splash_request" />
+
+        <com.quietmap.app.MaterialSwitchPreference
+            android:icon="@drawable/ic_ads"
+            android:key="splash_shake" />
+
+    </PreferenceCategory>
+
     <PreferenceCategory android:title="@string/group_bg">
 
         <com.quietmap.app.MaterialSwitchPreference

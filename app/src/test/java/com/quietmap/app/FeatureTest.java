@@ -16,6 +16,9 @@ import java.util.Set;
 public class FeatureTest {
 
     private static final Set<String> EXPECTED_KEYS = new HashSet<>(Arrays.asList(
+            "splash_gate",
+            "splash_request",
+            "splash_shake",
             "bg_msg_fetch",
             "bg_awaken_report",
             "bg_afc_taoke",

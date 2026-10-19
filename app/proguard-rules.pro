@@ -23,3 +23,8 @@
 
 # 系统按 manifest 里的类名实例化 ContentProvider，R8 需要保留入口。
 -keep class com.quietmap.app.ReportProvider { public <init>(); }
+
+# DexKit 2.x（Lze5 混淆类字符串锚定用）：JNI 回调与 flatbuffers 会被 R8 裁剪/改名。
+-keep class org.luckypray.dexkit.** { *; }
+-keep class com.google.flatbuffers.** { *; }
+-dontwarn org.luckypray.dexkit.**

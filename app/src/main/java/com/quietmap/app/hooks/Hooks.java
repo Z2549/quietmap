@@ -45,6 +45,15 @@ public final class Hooks {
     private static void installOne(XposedModule module, ClassLoader cl, Feature f) {
         try {
             switch (f) {
+                case SPLASH_GATE:
+                    SplashGateHooks.install(module, cl);
+                    break;
+                case SPLASH_REQUEST:
+                    SplashRequestHooks.install(module, cl);
+                    break;
+                case SPLASH_SHAKE:
+                    SplashShakeHooks.install(module, cl);
+                    break;
                 case BG_MSG_FETCH:
                     BgMsgFetchHooks.install(module, cl);
                     break;

@@ -1,9 +1,11 @@
 package com.quietmap.app;
 
+import android.content.pm.ApplicationInfo;
 import android.util.Log;
 
 import androidx.annotation.NonNull;
 
+import com.quietmap.app.dexkit.DexKitLocator;
 import com.quietmap.app.hooks.Hooks;
 
 import io.github.libxposed.api.XposedModule;
@@ -23,6 +25,16 @@ public class QuietMapModule extends XposedModule {
 
     @Override
     public void onModuleLoaded(@NonNull XposedModuleInterface.ModuleLoadedParam param) {
+        // DexKit 的 libdexkit.so 要从模块自己的 nativeLibraryDir 显式加载
+        // （宿主进程的 java.library.path 里没有模块的 so 目录）。
+        try {
+            ApplicationInfo appInfo = getModuleApplicationInfo();
+            if (appInfo != null && appInfo.nativeLibraryDir != null) {
+                DexKitLocator.setModuleNativeDir(appInfo.nativeLibraryDir);
+            }
+        } catch (Throwable t) {
+            log(Log.WARN, TAG, "setModuleNativeDir failed", t);
+        }
         log(Log.INFO, TAG, "loaded process=" + param.getProcessName()
                 + " api=" + getApiVersion()
                 + " frameworkProps=0x" + Long.toHexString(getFrameworkProperties()));
