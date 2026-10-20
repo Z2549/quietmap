@@ -17,7 +17,11 @@ public enum Feature {
     SPLASH_REQUEST("splash_request", R.string.f_splash_request_title, R.string.f_splash_request_summary),
     /** 开屏摇一摇禁用（SplashButtonInfo 摇一摇字段返回空/false）。 */
     SPLASH_SHAKE("splash_shake", R.string.f_splash_shake_title, R.string.f_splash_shake_summary),
-    /** 后台拉取营销消息 + 亮屏触发源（MessageBoxManager + BackgroundMsgScreenReceiver）。 */
+    /**
+     * 后台拉取营销消息 + 亮屏触发源（MessageBoxManager#getMessageInBackground +
+     * BackgroundMsgScreenReceiver）；另挂 handlePush、BackgroundMsgManager#a、
+     * fetchMessageFromMainMap 三个推送处理/主图拉取入口。
+     */
     BG_MSG_FETCH("bg_msg_fetch", R.string.f_bg_msg_fetch_title, R.string.f_bg_msg_fetch_summary),
     /** 唤起端上报（AwakenRequestHolder#sendAwakenPage）。 */
     BG_AWAKEN_REPORT("bg_awaken_report", R.string.f_bg_awaken_report_title, R.string.f_bg_awaken_report_summary),
@@ -36,8 +40,10 @@ public enum Feature {
     /**
      * 首页消息红点体系（数据层断源，白名单式取舍）：
      * getMessages 全重载 + retrieveRemoteMessages 不调用（营销红点拉取断源）、
-     * IDeliveryDisplay#start 不调用（主图投放）、updateAppBadge 不调用 +
-     * setBadgeDisplay 强制 false（角标红点）。
+     * IDeliveryDisplay#start 不调用（主图投放）、
+     * updateAppBadge 在 count>0 时不调用、count<=0 放行（清角标），
+     * setBadgeDisplay 不调用；同一策略同时覆盖 AjxModuleBadge 与
+     * 启动器角标路径 BadgeSystemManager#updateAppBadge。
      */
     HOME_MSG_FILTER("home_msg_filter", R.string.f_home_msg_filter_title, R.string.f_home_msg_filter_summary),
     /** 搜索热词断源（requestPreSetWord + PreSetWordManager e/d + AJX 回填，不动 sugg）。 */
@@ -46,7 +52,7 @@ public enum Feature {
     H5_AD_LOG("h5_ad_log", R.string.f_h5_ad_log_title, R.string.f_h5_ad_log_summary),
     /** 地图运营浮层断源（FloatingLayerManager#a 返回空串，不注册浮层）。 */
     MAP_FLOAT_LAYER("map_float_layer", R.string.f_map_float_layer_title, R.string.f_map_float_layer_summary),
-    /** 营销图文消息素材下载断源（ImageTextMessageDownloader 下载任务不执行）。 */
+    /** 营销图文消息素材下载断源（La8#run 不执行；类名兜底 a8 优先，DexKit 字符串锚定仅兜底）。 */
     MSG_IMAGE_TEXT("msg_image_text", R.string.f_msg_image_text_title, R.string.f_msg_image_text_summary),
     /**
      * 弹窗净化（升级提示配置 + 首页弹窗冲突队列）：

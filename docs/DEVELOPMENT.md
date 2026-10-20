@@ -14,7 +14,7 @@ app/src/main/java/com/quietmap/app/
 ├── ServiceBridge.java         XposedService 绑定（丢占位 binder + SendBinder 补投）
 ├── ReportProvider.java        诊断回传 ContentProvider（高德进程 → 模块 App）
 ├── MainActivity.java          设置入口（Material 3，点标题弹关于）
-├── SettingsFragment.java      设置页（状态卡 / 十二开关 / 诊断卡 / 页脚）
+├── SettingsFragment.java      设置页（状态卡 / 十九开关 / 诊断卡 / 页脚）
 ├── MaterialSwitchPreference.java
 ├── dexkit/
 │   ├── Anchors.java           混淆类锚点定义（"不发送请求"）
@@ -46,7 +46,12 @@ cd /d/quietmap
 
 两个构建都必须通过。release 产物是 `app/build/outputs/apk/release/quietmap-<versionName>.apk`
 （R8 minify + shrinkResources 开启）。签名读仓库根目录 `keystore.properties`（不入库）：
-没有该文件时 release 显式借用 debug 证书——可以安装，但不算正式签名，**不要发布**。
+缺少该文件时 `assembleRelease` / `bundleRelease` 在任务执行阶段直接抛 `GradleException`，
+不会产出用 debug 证书签名的“正式版”。
+
+构建注意：`check*AarMetadata` 仅豁免 libxposed `service` / `interface` 两个坐标
+（service 声明 minCompileSdk 37，而本机只能 compileSdk 36；本模块不使用 37 新 API）。
+若未来改用 compileSdk 37，可删除 `app/build.gradle` 里的豁免段。
 
 注意：本机 `D:\Android\Sdk\platforms` 里 `android-37.0` 这种目录名 AGP 解析不了，
 compileSdk 只能用 36（已实测 36 可用；需要 37 时先把安装目录改名成 `android-37`）。
@@ -72,8 +77,10 @@ bash tools/check-mounts.sh                      # 默认 E:/download/base(4).apk
 bash tools/check-mounts.sh "E:\download\base(5).apk"
 ```
 
-首次会为 APK 建 DexSQL 缓存（约 40 秒，写 `tools/.dexsql-cache/`，不碰 APK 目录）。
-每个挂载点输出三态：
+首次会为该 APK 建 DexSQL 缓存（约 40 秒，写 `tools/.dexsql-cache/<APK sha256 前 16 位>/`，
+不碰 APK 目录；换包自动换目录，不会复用旧包缓存）。查询失败（dexsql 非 0 退出或结果异常）
+会直接中止，不会把错误当成 0 行结果而误报 `GONE`。脚本会读取并打印 APK 的 versionName，
+与 **17.01.0.2012** 不一致时给出 WARN（继续体检）。每个挂载点输出三态：
 
 - `OK` — 类和方法都在，完整签名没变
 - `SIG` — 类在但方法签名变了（改名 / 参数变化）
@@ -81,7 +88,7 @@ bash tools/check-mounts.sh "E:\download\base(5).apk"
 
 混淆类挂载点（`Lze5#attemptRequestData`）额外按方法体字符串锚点复核：签名在但
 `"不发送请求"` 锚点串丢了也判 `SIG`（运行时 DexKit 会定位失败），输出带 `[锚点OK]` 标记。
-末尾汇总 OK/SIG/GONE 计数（批 5 后共 52 项）。SIG/GONE 的项要先用 dexsql 重新定位：
+末尾汇总 OK/SIG/GONE 计数（共 53 项）。SIG/GONE 的项要先用 dexsql 重新定位：
 
 ```bash
 E:/tools/dexsql/dexsql.exe query --input <apk> \
@@ -124,8 +131,8 @@ E:/tools/dexsql/dexsql.exe query --input <apk> \
 
 | 仓库 | 作用 | tag 格式 |
 |---|---|---|
-| `yigenhuobah/quietmap` | 源码主仓库，Release 面向直接下载 | `v0.1.0` |
-| `Xposed-Modules-Repo/io.github.yigenhuobah.quietmap` | 官方模块仓库，LSPosed 管理器从这里读 | `1-0.1.0`（`<versionCode>-<versionName>`） |
+| `yigenhuobah/quietmap` | 源码主仓库，Release 面向直接下载 | `v0.5.1` |
+| `Xposed-Modules-Repo/io.github.yigenhuobah.quietmap` | 官方模块仓库，LSPosed 管理器从这里读 | `6-0.5.1`（`<versionCode>-<versionName>`） |
 
 ### 1. 构建与验证
 
@@ -144,10 +151,10 @@ bash tools/check-mounts.sh
 ### 2. 主仓库
 
 ```bash
-git add -A && git commit -m "v0.1.0：<一句话>"
-git tag v0.1.0 && git push origin main --tags
-gh release create v0.1.0 app/build/outputs/apk/release/quietmap-0.1.0.apk \
-  --title "0.1.0" --notes "<更新说明>"
+git add -A && git commit -m "v0.5.1：<一句话>"
+git tag v0.5.1 && git push origin main --tags
+gh release create v0.5.1 app/build/outputs/apk/release/quietmap-0.5.1.apk \
+  --title "0.5.1" --notes "<更新说明>"
 ```
 
 ### 3. 官方模块仓库
@@ -155,15 +162,15 @@ gh release create v0.1.0 app/build/outputs/apk/release/quietmap-0.1.0.apk \
 ```bash
 cd <official-repo 克隆目录>
 # 换入新 APK；SUMMARY 和 README.md 同步主仓库的用户说明
-cp /d/quietmap/app/build/outputs/apk/release/quietmap-0.1.0.apk .
-git add -A && git commit -m "0.1.0"
-git tag 1-0.1.0 && git push origin main --tags
-gh release create 1-0.1.0 quietmap-0.1.0.apk --title "0.1.0" --notes "<更新说明>"
+cp /d/quietmap/app/build/outputs/apk/release/quietmap-0.5.1.apk .
+git add -A && git commit -m "0.5.1"
+git tag 6-0.5.1 && git push origin main --tags
+gh release create 6-0.5.1 quietmap-0.5.1.apk --title "0.5.1" --notes "<更新说明>"
 ```
 
 注意事项（与静盒一致）：
 
-- **tag 必须是 `<versionCode>-<versionName>`**（如 `1-0.1.0`），解析失败模块不会出现在索引里。
+- **tag 必须是 `<versionCode>-<versionName>`**（如 `6-0.5.1`），解析失败模块不会出现在索引里。
 - 官方仓库里只需要 `SUMMARY`、`README.md` 和 release 资产，不要推源码。
 - 仓库 Description 只能网页设置；API 对 `maintain` 角色返回 404。
 - 发版只需 `maintain` 权限；加协作者需要 admin，走 submission issue。
@@ -172,13 +179,13 @@ gh release create 1-0.1.0 quietmap-0.1.0.apk --title "0.1.0" --notes "<更新说
 
 ### 4. 收尾
 
-更新 CHANGELOG 与兼容版本说明。
+更新 README 的版本行与覆盖矩阵（仓库没有 CHANGELOG.md），并核对兼容版本说明。
 
 ## 兼容性声明
 
 仅保证高德 17.01.0.2012，其它版本尽力而为。挂载点绝大多数是非混淆类（`com.autonavi.*`
 业务包 / 淘宝、支付宝 SDK 包），升级后大概率仍在，但签名可能变——先跑
-`tools/check-mounts.sh` 再说。混淆挂载点有五个：`Lze5#attemptRequestData` 与
+`tools/check-mounts.sh` 再说。混淆挂载点有四个（`Lze5`、`La8`、`Llt1`、`Lcx1`）：`Lze5#attemptRequestData` 与
 批 4 的 `La8#run`（图文素材下载任务）由 DexKit 字符串锚定兜底，锚点分别是
 `"不发送请求"` 与 `"invalid download item: " + "ImageTextMessageDownloader"`；
 批 3 的 `Llt1#IDeliveryDisplay.start`（IDeliveryDisplay 实现类）与批 5 的
@@ -302,7 +309,7 @@ VivoPush 等），hook 会破坏 token 注册与厂商通道绑定。本批只�
 
 | B 报告点位 | 分类 | 批号 / 开关 | 说明 |
 |---|---|---|---|
-| 1.1 `SplashScreenServiceImpl.tryShowSplashView` | 已覆盖 | 批2 `splash_request` | 不调用，展示层兜底 |
+| 1.1 `SplashScreenServiceImpl.tryShowSplashView` | 已覆盖 | 批2 `splash_gate` | 不调用，展示层兜底 |
 | 1.2 `BootBizDataPreloader.canShowSplash` | 已覆盖 | 批2 `splash_gate` | 返回 `Boolean.FALSE`，走官方 NO_SPLASH |
 | 1.3 `g.o(I,String)` | 有意不做 | — | 318 指令启动关键方法，nop 风险高 |
 | 1.4 `SplashFrequencyController.a/b` | 有意不做 | — | 语义未实测，误 hook 会每次弹开屏 |
@@ -320,7 +327,7 @@ VivoPush 等），hook 会破坏 token 注册与厂商通道绑定。本批只�
 | 2.5 `MessageBoxManager.getMessages` / `retrieveRemoteMessages` | 已覆盖 | 批3 `home_msg_filter` | 3 个 getMessages 重载 + 远程拉取全断 |
 | 2.5b `fetchMessageFromMainMap` | 已覆盖 | 批5 `bg_msg_fetch` | 不调用 |
 | 2.6 `IDeliveryDisplay.start` | 已覆盖 | 批3 `home_msg_filter` | 挂实现类 `Llt1` |
-| 2.7 `AjxModuleBadge` 角标 | 已覆盖 | 批3 `home_msg_filter` | 更新不调用 + 显示强制 false |
+| 2.7 `AjxModuleBadge` 角标 | 已覆盖 | 批3 `home_msg_filter` | 更新 count>0 抑制 / count<=0 放行 + 显示不调用；另挂启动器角标 `BadgeSystemManager#updateAppBadge` |
 | 2.8 `AMapHomeMsgManager` | 已覆盖（间接） | 批3 `home_msg_filter` | 入口走 getMessages / IDeliveryDisplay |
 | 3.1 `BaseSearchBar.requestPreSetWord` | 已覆盖 | 批4 `search_hotword` | 不调用 |
 | 3.2 `PreSetWordManager.e/d` | 已覆盖 | 批4 `search_hotword` | 不调用 |
@@ -339,7 +346,7 @@ VivoPush 等），hook 会破坏 token 注册与厂商通道绑定。本批只�
 | 5.3 `FloatingLayerManager.a` | 已覆盖 | 批4 `map_float_layer` | 返回空串，不注册 |
 | 5.4 开屏视频/扫光挂件 | 已覆盖（间接） | 批2 `splash_gate`/`splash_request` | 开屏不展示，挂件不出现 |
 | 5.5 `ImageTextMessageDownloader` 下载任务 | 已覆盖 | 批4 `msg_image_text` | 挂混淆 Runnable `La8` |
-| 6.1 `ze5` / `ye5` 预加载 | 已覆盖 | 批2 `splash_request` | 不调用 |
+| 6.1 `ze5` / `ye5` 预加载 | 部分覆盖 | 批2 `splash_request` | 只挂 `Lze5#attemptRequestData`；`ye5` 未单独挂载（其调用路径经 Lze5 间接收敛） |
 | 6.2 `AfcTkManager.registerTkFlag` | 已覆盖 | 批1 `bg_afc_taoke` | 不调用 |
 | 6.3 `UtdidUploadTask` | 已覆盖 | 批1 `bg_utdid_upload` | upload/uploadFromCache/reqServer 全断 |
 | 6.4 utdid 生成/读取 | 有意不做 | — | 改返回值可能 NPE 或触发风控 |
@@ -447,8 +454,8 @@ dexsql 复核与任务清单的出入（一律以 dexsql 为准）：
 | `home_msg_filter` | `MessageBoxManager#getMessages` **三个重载** | 不调用（消息/红点拉取总入口） |
 | `home_msg_filter` | `MessageBoxManager#retrieveRemoteMessages(Set,String)` | 不调用（远程营销消息断源） |
 | `home_msg_filter` | `Llt1;->start(Activity,AmapMessage)`（IDeliveryDisplay 实现类） | 不调用（主图投放） |
-| `home_msg_filter` | `AjxModuleBadge#updateAppBadge(String,int)` | 不调用（角标红点更新） |
-| `home_msg_filter` | `AjxModuleBadge#setBadgeDisplay(String,boolean)` | 强制 `false`（角标显示广播不发出） |
+| `home_msg_filter` | `AjxModuleBadge#updateAppBadge(String,int)` | count>0 不调用 / count<=0 放行（角标红点更新） |
+| `home_msg_filter` | `AjxModuleBadge#setBadgeDisplay(String,boolean)` | 不调用（角标显示广播不发出） |
 
 dexsql 复核与任务清单的出入（一律以 dexsql 为准）：
 
@@ -498,12 +505,12 @@ dexsql 复核与任务清单的出入（一律以 dexsql 为准）：
 
 ### 批 2（v0.2.0）开屏一条龙
 
-三个新开关（默认全开），共 7 个挂载点：
+三个新开关（默认全开），共 8 个挂载点：
 
 | 开关 | 挂载点 | 动作 |
 |---|---|---|
 | `splash_gate` | `BootBizDataPreloaderImpl#canShowSplash()` | return `java.lang.Boolean.FALSE`（走官方 `SplashFinishReason.NO_SPLASH` 分支） |
-| `splash_request` | `SplashScreenServiceImpl#tryShowSplashView(I,String)` | 不调用（展示层兜底，skipVoid） |
+| `splash_gate` | `SplashScreenServiceImpl#tryShowSplashView(I,String)` | 不调用（展示层兜底，skipVoid） |
 | `splash_request` | `AlimamaRequestHolder#sendSplashScreen` 两个重载 | 不调用 |
 | `splash_request` | `Lze5;->attemptRequestData(IZ)V`（混淆类） | 不调用；DexKit 按方法体 `"不发送请求"` 锚定，兜底类名列表 `["ze5"]` |
 | `splash_shake` | `SplashButtonInfo#getShakeGuide/getShakeTip` | return `""` |

@@ -4,7 +4,7 @@
 
 - 目标：高德地图 **17.01.0.2012**（`com.autonavi.minimap`）
 - 框架：LSPosed / libxposed API 102
-- 版本：0.5.0（versionCode 5，最终批）
+- 版本：0.5.1（versionCode 6）
 - 许可：MIT
 
 > 本模块与高德地图官方无任何关联，仅供学习、研究和个人设备使用。使用可能违反目标应用的服务条款，风险由使用者自行承担。
@@ -26,7 +26,7 @@
 | 9 | 界面 | `popup_upgrade` | 升级弹窗屏蔽 |
 | 10 | 首页净化 | `home_banner` | 首页 Banner 拉取与加载断源 |
 | 11 | 首页净化 | `home_operate_bar` | 首页运营活动条与地图消息气泡屏蔽 |
-| 12 | 首页净化 | `home_msg_filter` | 首页消息/红点数据层断源、主图投放与角标红点净化 |
+| 12 | 首页净化 | `home_msg_filter` | 首页消息/红点数据层断源、主图投放与角标红点净化（`AjxModuleBadge` + 启动器角标 `BadgeSystemManager#updateAppBadge`，count>0 抑制 / count<=0 放行） |
 | 13 | 搜索与推广净化 | `search_hotword` | 搜索热词净化（不影响输入联想） |
 | 14 | 搜索与推广净化 | `h5_ad_log` | H5 广告点击/曝光监测断源 |
 | 15 | 搜索与推广净化 | `map_float_layer` | 地图运营浮层挂件不注册 |
@@ -39,7 +39,7 @@
 
 ## 安装与使用
 
-1. 在已安装 LSPosed（libxposed API 102）的设备上安装 `quietmap-0.5.0.apk`。
+1. 在已安装 LSPosed（libxposed API 102）的设备上安装 `quietmap-0.5.1.apk`。
 2. 在 LSPosed 管理器里启用 QuietMap，作用域勾选 **高德地图**（`com.autonavi.minimap`）。
 3. 强制停止高德后重新打开（或重启设备）。
 4. 打开 QuietMap 设置页：
@@ -56,7 +56,7 @@
 bash tools/check-mounts.sh "E:\path\to\amap.apk"
 ```
 
-输出 `OK` / `SIG` / `GONE` 三态。混淆挂载点（`Lze5#attemptRequestData`、`La8#run`、`Lcx1#addToQueue`、`Llt1#IDeliveryDisplay.start`）随版本改名的风险最高，失效时模块只记 `skip`，不会影响其余钩子。
+输出 `OK` / `SIG` / `GONE` 三态，共 **53 项**。DexSQL 缓存按 APK sha256 前 16 位隔离（`tools/.dexsql-cache/<sha256>/`），换包不会复用旧缓存；查询失败（dexsql 非 0 退出或结果异常）会直接中止，不会把错误结果当成 0 行而误报 `GONE`。脚本会打印 APK 的 versionName，非 **17.01.0.2012** 时给出 WARN（只提示、不中断）。混淆挂载点（`Lze5#attemptRequestData`、`La8#run`、`Lcx1#addToQueue`、`Llt1#IDeliveryDisplay.start`）随版本改名的风险最高，失效时模块只记 `skip`，不会影响其余钩子。
 
 ## 稳定性设计（摘要）
 
@@ -68,13 +68,20 @@ bash tools/check-mounts.sh "E:\path\to\amap.apk"
 - 定位失败只记 `<featureId> skip: ...`，绝不向外抛；安装整段再包一层 `try/catch(Throwable)`。
 - 只做「不调用 / 返回常量」，不修改复杂业务状态；开关只认 remote prefs。
 
+## 已知限制
+
+- `libxposed` 的 `XposedProvider` 在 `SendBinder` 调用上没有调用方认证，属框架约定风险（不影响本模块自身逻辑）。
+- 诊断 Provider 仅接受高德 UID：`Binder.getCallingUid` + `getPackagesForUid` 必须命中 `com.autonavi.minimap`。
+- DexKit 扫描仅在主进程启用；非主进程（`:locationservice`、`:widgetProvider`）走类名/方法名兜底。
+- release 缺少 `keystore.properties` 时构建直接失败（`assembleRelease` / `bundleRelease` 抛 `GradleException`），避免产出 debug 签名的正式包。
+
 ## 全量覆盖矩阵
 
 对照调研报告 `B-hook点.md` 的 40+ 点位，逐条给出结论。批号与开关名对应实现；「有意不做」附理由；「技术不可行」指 dex 层没有可安全落地的本地实现。
 
 | B 报告点位 | 分类 | 批号 / 开关 | 说明 |
 |---|---|---|---|
-| 1.1 `SplashScreenServiceImpl.tryShowSplashView` | 已覆盖 | 批2 `splash_request` | 不调用，展示层兜底 |
+| 1.1 `SplashScreenServiceImpl.tryShowSplashView` | 已覆盖 | 批2 `splash_gate` | 不调用，展示层兜底 |
 | 1.2 `BootBizDataPreloader.canShowSplash` | 已覆盖 | 批2 `splash_gate` | 返回 `Boolean.FALSE`，走官方 NO_SPLASH |
 | 1.3 `g.o(I,String)` | 有意不做 | — | 318 指令启动关键方法，nop 风险高 |
 | 1.4 `SplashFrequencyController.a/b` | 有意不做 | — | 语义未实测，误 hook 会每次弹开屏 |
@@ -92,7 +99,7 @@ bash tools/check-mounts.sh "E:\path\to\amap.apk"
 | 2.5 `MessageBoxManager.getMessages` / `retrieveRemoteMessages` | 已覆盖 | 批3 `home_msg_filter` | 3 个 getMessages 重载 + 远程拉取全断 |
 | 2.5b `fetchMessageFromMainMap` | 已覆盖 | 批5 `bg_msg_fetch` | 不调用 |
 | 2.6 `IDeliveryDisplay.start` | 已覆盖 | 批3 `home_msg_filter` | 挂实现类 `Llt1` |
-| 2.7 `AjxModuleBadge` 角标 | 已覆盖 | 批3 `home_msg_filter` | 更新不调用 + 显示强制 false |
+| 2.7 `AjxModuleBadge` 角标 | 已覆盖 | 批3 `home_msg_filter` | 更新 count>0 抑制 / count<=0 放行 + 显示不调用；另挂启动器角标 `BadgeSystemManager#updateAppBadge` |
 | 2.8 `AMapHomeMsgManager` | 已覆盖（间接） | 批3 `home_msg_filter` | 入口走 getMessages / IDeliveryDisplay |
 | 3.1 `BaseSearchBar.requestPreSetWord` | 已覆盖 | 批4 `search_hotword` | 不调用 |
 | 3.2 `PreSetWordManager.e/d` | 已覆盖 | 批4 `search_hotword` | 不调用 |
@@ -111,7 +118,7 @@ bash tools/check-mounts.sh "E:\path\to\amap.apk"
 | 5.3 `FloatingLayerManager.a` | 已覆盖 | 批4 `map_float_layer` | 返回空串，不注册 |
 | 5.4 开屏视频/扫光挂件 | 已覆盖（间接） | 批2 `splash_gate`/`splash_request` | 开屏不展示，挂件不出现 |
 | 5.5 `ImageTextMessageDownloader` 下载任务 | 已覆盖 | 批4 `msg_image_text` | 挂混淆 Runnable `La8` |
-| 6.1 `ze5` / `ye5` 预加载 | 已覆盖 | 批2 `splash_request` | 不调用 |
+| 6.1 `ze5` / `ye5` 预加载 | 部分覆盖 | 批2 `splash_request` | 只挂 `Lze5#attemptRequestData`；`ye5` 未单独挂载（其调用路径经 Lze5 间接收敛） |
 | 6.2 `AfcTkManager.registerTkFlag` | 已覆盖 | 批1 `bg_afc_taoke` | 不调用 |
 | 6.3 `UtdidUploadTask` | 已覆盖 | 批1 `bg_utdid_upload` | upload/uploadFromCache/reqServer 全断 |
 | 6.4 utdid 生成/读取 | 有意不做 | — | 改返回值可能 NPE 或触发风控 |
@@ -140,8 +147,8 @@ bash tools/check-mounts.sh
 ```
 
 工具链：AGP 8.12.2 + Gradle wrapper 8.13 + JDK 21，compileSdk 36 / minSdk 29 / targetSdk 36。
-release 产物：`app/build/outputs/apk/release/quietmap-0.5.0.apk`（R8 minify + shrinkResources）。
-签名读取仓库根目录 `keystore.properties`；没有该文件时 release 显式借用 debug 证书，可安装但不要发布。
+release 产物：`app/build/outputs/apk/release/quietmap-0.5.1.apk`（R8 minify + shrinkResources）。
+签名读取仓库根目录 `keystore.properties`；缺少该文件时 release 构建直接失败，不会产出用 debug 证书签名的包。
 
 ## GPL 红线
 

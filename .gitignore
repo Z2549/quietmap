@@ -28,3 +28,6 @@ Thumbs.db
 # 日志 / 崩溃
 *.log
 captures/
+
+# 本地审查产物
+.deep-review/

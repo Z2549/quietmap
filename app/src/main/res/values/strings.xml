@@ -32,7 +32,7 @@
 
     <!-- 诊断卡 -->
     <string name="diag_title">诊断</string>
-    <string name="diag_hint">registered=挂载成功 · hit N=命中次数 · skip=已跳过。数据来自高德进程回传，启动高德后约 3 秒刷新。</string>
+    <string name="diag_hint">registered=挂载成功 · hit N=命中次数 · skip=已跳过。数据来自高德进程回传，重新进入本页时刷新。</string>
 
     <!-- 页脚 -->
     <string name="footer_limits">仅保证高德 17.01.0.2012，其它版本尽力而为。</string>
@@ -45,7 +45,7 @@
     <string name="f_splash_shake_title">摇一摇开屏禁用</string>
     <string name="f_splash_shake_summary">清空摇一摇引导与提示，摇一摇无从触发</string>
     <string name="f_bg_msg_fetch_title">后台消息拉取净化</string>
-    <string name="f_bg_msg_fetch_summary">断开亮屏时后台拉取营销消息，并掐掉亮屏触发源</string>
+    <string name="f_bg_msg_fetch_summary">断开亮屏时后台拉取营销消息，并掐掉亮屏触发源；不处理推送消息、不拉取主图消息</string>
     <string name="f_bg_awaken_report_title">唤端上报断源</string>
     <string name="f_bg_awaken_report_summary">不发送唤起端上报请求</string>
     <string name="f_bg_afc_taoke_title">淘宝客广告 SDK 断源</string>
