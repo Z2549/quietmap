@@ -2,6 +2,8 @@
 
 面向接手维护的人。用户安装说明看官方模块仓库的 README。
 
+> **目录迁移（2026-10-21）**：工程位于 `D:\modules\QuietMap\project`，调研与验证产物位于 `D:\modules\QuietMap\research`；本文历史记录中的 `D:\quietmap` / `E:\tmp-amap-hook` 为迁移前路径。
+
 ## 项目结构
 
 ```

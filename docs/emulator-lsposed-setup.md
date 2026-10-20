@@ -3,6 +3,7 @@
 > 状态：**方案文档，未实施刷入**。主代理审阅后再动手。
 > 范围：仅 AVD 自建环境；真机（myron）按需另行申请，不在本文范围。
 > 撰写日期：2026-10-19。本文所有下载渠道、文件大小、哈希均为本机（Windows 10 / Git Bash）实测。
+> **目录迁移（2026-10-21）**：模块已统一到 `D:\modules\QuietMap\`——工程在 `project\`，调研/日志/备份/下载/AVD 在 `research\`。文中 `D:\quietmap` 与 `E:\tmp-amap-hook` 均为迁移前历史路径。
 
 ---
 
@@ -23,8 +24,8 @@
 |---|---|
 | SDK | `D:\Android\Sdk`（build-tools 34/35，platform-tools 37.0.1，emulator 37.2.12） |
 | AVD 注册目录 | `D:\Android\avd`（`quietmap-test.ini` 在此） |
-| AVD 实体目录 | `E:\tmp-amap-hook\avd\quietmap-test.avd`（见下方磁盘坑） |
-| userdata | `E:\tmp-amap-hook\avd-data\userdata-qemu.img`（12G） |
+| AVD 实体目录 | `D:\modules\QuietMap\research\avd\quietmap-test.avd`（迁移后；见下方磁盘坑） |
+| userdata | `D:\modules\QuietMap\research\avd\quietmap-test.avd\userdata-qemu.img.qcow2`（约 3.2G，随 AVD 目录） |
 | 镜像 | `system-images;android-35;google_apis;x86_64` r9（**已换装并验证**，含 ARM 翻译，见 §2） |
 | 配置 | Pixel 6 皮肤，RAM 4096M，data 12G，GPU enabled/host，x86_64，API 35 |
 | 加速 | WHPX（`Windows Hypervisor Platform accelerator is operational`），emulator-check accel=0（正常，WHPX 在位） |
@@ -41,7 +42,7 @@ export ANDROID_SDK_ROOT="D:/Android/Sdk" ANDROID_AVD_HOME="D:/Android/avd"
 ### 磁盘坑（已踩）
 
 - `D:` 只剩 8.5G：emulator 创建 userdata 前会检查 **AVD 目录所在盘** 空间（12G data 需要约 14.7G），`disk.dataPartition.path` 指到别盘**不改变这个检查位置**（实测 FATAL 依旧）。
-- 解决：整个 `.avd` 目录放 `E:\tmp-amap-hook\avd\`，只把 `quietmap-test.ini`（path= 指向 E:）留在 `D:\Android\avd`，`emulator -avd quietmap-test` 照常识别。
+- 解决：整个 `.avd` 目录曾放 `E:\tmp-amap-hook\avd\`（2026-10-21 已迁到 `D:\modules\QuietMap\research\avd\`），只把 `quietmap-test.ini`（path= 指向实体目录）留在 `D:\Android\avd`，`emulator -avd quietmap-test` 照常识别。
 - 另注意：本机 adb 上挂着一个**无线调试真机**（序列号 `adb-e4287ae2-…_adb-tls-connect._tcp.`，疑似 myron）。所有 adb 命令必须带 `-s emulator-5554`，禁止无差别 `adb install/shell`。
 
 ---
