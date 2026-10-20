@@ -23,9 +23,10 @@ import io.github.libxposed.api.XposedModule;
  *   （清理逻辑随之跳过，仅留下过期缓存，不影响功能。）
  *
  * La8 是单字母混淆类，定位策略与批 2 的 Lze5 一致：
- *   主方案 DexKit 按方法体字符串锚定（"invalid download item: " +
- *   "ImageTextMessageDownloader"，void()V 签名强校验）；
- *   兜底类名列表 ["a8"]（描述符 La8; → Java 名 a8）。
+ *   类名列表 ["a8"] 优先（描述符 La8; → Java 名 a8，Class.forName 毫秒级命中）；
+ *   DexKit 按方法体字符串锚定（"invalid download item: " +
+ *   "ImageTextMessageDownloader"，void()V 签名强校验）仅作兜底，避免冷启动
+ *   白付 native 加载 + 全 dex 扫描。
  * 两路都失败记 skip，fail-open。
  */
 final class MsgImageTextHooks {
@@ -48,22 +49,9 @@ final class MsgImageTextHooks {
         }
     }
 
-    /** 混淆类锚定：DexKit 字符串锚定优先，类名列表兜底，都失败返回 null。 */
+    /** 混淆类定位：类名列表优先（毫秒级），DexKit 字符串锚定兜底，都失败返回 null。 */
     private static Method resolveDownloadRun(XposedModule module, Feature f, ClassLoader cl) {
-        try {
-            Method m = DexKitLocator.findMethod(cl, null, DOWNLOAD_METHOD,
-                    void.class, new Class<?>[0],
-                    Anchors.STR_IMAGE_TEXT_DL, Anchors.STR_IMAGE_TEXT_DL_CLASS);
-            if (m != null) {
-                HookKit.info(module, f.key + " image-text downloader located via dexkit anchor: "
-                        + m.getDeclaringClass().getName());
-                return m;
-            }
-            HookKit.warn(module, f.key + " dexkit anchor miss, fallback to class-name list");
-        } catch (Throwable t) {
-            HookKit.warn(module, f.key + " dexkit anchor error: " + t.getMessage());
-        }
-
+        // 优先：类名列表（check-mounts 体检出新名后追加），避免冷启动白付 DexKit 全量扫描。
         for (String name : DOWNLOAD_CLASS_NAMES) {
             try {
                 Class<?> cls = Class.forName(name, false, cl);
@@ -76,9 +64,25 @@ final class MsgImageTextHooks {
             } catch (Throwable ignored) {
             }
         }
+        HookKit.warn(module, f.key + " class-name list miss, fallback to dexkit anchor");
 
-        HookKit.warn(module, f.key + " skip: image-text downloader not found (dexkit anchor + "
-                + java.util.Arrays.toString(DOWNLOAD_CLASS_NAMES) + ")");
+        // 兜底：DexKit 按方法体特征串定位（类名改了也能找到）。
+        try {
+            Method m = DexKitLocator.findMethod(cl, null, DOWNLOAD_METHOD,
+                    void.class, new Class<?>[0],
+                    Anchors.STR_IMAGE_TEXT_DL, Anchors.STR_IMAGE_TEXT_DL_CLASS);
+            if (m != null) {
+                HookKit.info(module, f.key + " image-text downloader located via dexkit anchor: "
+                        + m.getDeclaringClass().getName());
+                return m;
+            }
+            HookKit.warn(module, f.key + " dexkit anchor miss");
+        } catch (Throwable t) {
+            HookKit.warn(module, f.key + " dexkit anchor error: " + t.getMessage());
+        }
+
+        HookKit.warn(module, f.key + " skip: image-text downloader not found (class-name list "
+                + java.util.Arrays.toString(DOWNLOAD_CLASS_NAMES) + " + dexkit anchor)");
         HookState.markNotFound(f, "La8#run 锚定失败");
         return null;
     }

@@ -46,7 +46,6 @@ public class MainActivity extends AppCompatActivity {
         // 回调必须先挂上，否则首次绑定会被空回调吃掉、永远等不到重绘。
         ServiceBridge.setOnBound(() -> runOnUiThread(this::refreshCurrent));
         ServiceBridge.bind(getApplicationContext());
-        ServiceBridge.poke(getApplicationContext());
     }
 
     /** targetSdk 36 强制 edge-to-edge，内容会画到状态栏/导航栏下面，必须自己吃 insets。 */
@@ -60,10 +59,21 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void refreshCurrent() {
+        // binder 回调可能晚于 Activity 销毁，避免在已销毁的实例上操作 FragmentManager。
+        if (isFinishing() || isDestroyed()) {
+            return;
+        }
         Fragment f = getSupportFragmentManager().findFragmentById(R.id.settings_container);
         if (f instanceof SettingsFragment) {
             ((SettingsFragment) f).refresh();
         }
+    }
+
+    @Override
+    protected void onDestroy() {
+        // 清掉对 Activity 的静态引用，防止退出后 binder 回调仍持有已销毁实例。
+        ServiceBridge.setOnBound(null);
+        super.onDestroy();
     }
 
     private String versionName() {

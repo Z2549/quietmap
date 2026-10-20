@@ -4,6 +4,7 @@ import com.quietmap.app.Feature;
 
 import java.lang.reflect.Method;
 
+import io.github.libxposed.api.XposedInterface;
 import io.github.libxposed.api.XposedModule;
 
 /**
@@ -36,8 +37,13 @@ import io.github.libxposed.api.XposedModule;
  *    唯一子类 Lcom/amap/bundle/badgesystem/ajxmodule/AjxModuleBadge; 覆写了
  *    updateAppBadge(String,int) 与 setBadgeDisplay(String,boolean) 且有实体
  *    实现体（smali 实测）。故挂 AjxModuleBadge 的两个方法：
- *      updateAppBadge   → 不调用
- *      setBadgeDisplay  → 强制 return false（本地广播 BADGE_SYSTEM_DISPLAY 不发出）
+ *      updateAppBadge   → count > 0 时不调用；count <= 0 放行（清角标）
+ *      setBadgeDisplay  → 不调用（本地广播 BADGE_SYSTEM_DISPLAY 不发出）
+ *    但首页消息盒路径 MapHomeMsgDispatchServiceImpl.updateBadgeInternal 走
+ *    接口 IBadgeSystemService->updateAppBadge，实际实现在
+ *    Lcom/autonavi/jni/badgesystem/BadgeSystemManager;->updateAppBadge(String,int)
+ *    （dexsql 实证，返回 V），故额外挂 BadgeSystemManager 的同名方法：
+ *      updateAppBadge   → count > 0 时不调用；count <= 0 放行（清角标）
  *
  * 取舍说明（白名单式）：
  * - 本批取数据层断源（不拉远程消息），不按 isAd 逐条过滤——getMessages 是
@@ -71,6 +77,10 @@ final class HomeMsgFilterHooks {
     /** 角标桥接：AbstractModuleBadge 是抽象类，实现类在 badgesystem 包（非混淆）。 */
     private static final String AJX_MODULE_BADGE =
             "com.amap.bundle.badgesystem.ajxmodule.AjxModuleBadge";
+
+    /** 消息盒角标路径的实际实现类：IBadgeSystemService 的 JNI 实现（dexsql 实证）。 */
+    private static final String BADGE_SYSTEM_MANAGER =
+            "com.autonavi.jni.badgesystem.BadgeSystemManager";
 
     private HomeMsgFilterHooks() {
     }
@@ -146,20 +156,64 @@ final class HomeMsgFilterHooks {
                 HookKit.skipVoid(module, f, "Llt1#IDeliveryDisplay.start"));
     }
 
-    /** 角标红点：updateAppBadge 不调用 + setBadgeDisplay 强制 false。 */
+    /** 角标红点：updateAppBadge(count>0) 不调用 + setBadgeDisplay 不调用。 */
     private static void installBadge(XposedModule module, Feature f, ClassLoader cl) {
         Class<?> badge = HookKit.findClass(module, f, cl, AJX_MODULE_BADGE);
-        if (badge == null) {
+        if (badge != null) {
+            Method updateAppBadge = HookKit.findMethod(module, f, badge,
+                    "updateAppBadge", String.class, int.class);
+            HookKit.install(module, f, "AjxModuleBadge#updateAppBadge", updateAppBadge,
+                    suppressPositiveBadgeCount(module, f, "AjxModuleBadge#updateAppBadge"));
+
+            Method setBadgeDisplay = HookKit.findMethod(module, f, badge,
+                    "setBadgeDisplay", String.class, boolean.class);
+            HookKit.install(module, f, "AjxModuleBadge#setBadgeDisplay", setBadgeDisplay,
+                    HookKit.skipVoid(module, f, "AjxModuleBadge#setBadgeDisplay"));
+        }
+
+        // 消息盒路径 MapHomeMsgDispatchServiceImpl.updateBadgeInternal 经
+        // IBadgeSystemService 分派到该 JNI 实现类，与 AjxModuleBadge 互不依赖。
+        Class<?> badgeSystem = HookKit.findClass(module, f, cl, BADGE_SYSTEM_MANAGER);
+        if (badgeSystem == null) {
             return;
         }
-        Method updateAppBadge = HookKit.findMethod(module, f, badge,
+        Method jniUpdateAppBadge = HookKit.findMethod(module, f, badgeSystem,
                 "updateAppBadge", String.class, int.class);
-        HookKit.install(module, f, "AjxModuleBadge#updateAppBadge", updateAppBadge,
-                HookKit.skipVoid(module, f, "AjxModuleBadge#updateAppBadge"));
+        HookKit.install(module, f, "BadgeSystemManager#updateAppBadge", jniUpdateAppBadge,
+                suppressPositiveBadgeCount(module, f, "BadgeSystemManager#updateAppBadge"));
+    }
 
-        Method setBadgeDisplay = HookKit.findMethod(module, f, badge,
-                "setBadgeDisplay", String.class, boolean.class);
-        HookKit.install(module, f, "AjxModuleBadge#setBadgeDisplay", setBadgeDisplay,
-                HookKit.constBool(module, f, "AjxModuleBadge#setBadgeDisplay", false));
+    /**
+     * 角标计数过滤 Hooker：读第二个参数 count（int）。
+     * count > 0（设置/累加角标）→ 记 hit 并返回 null，不执行原方法；
+     * count <= 0（清零/去角标）→ 原样放行，避免旧角标残留。
+     * 整段 try/catch(Throwable)：命中路径 proceed 0 次，回退路径恰好 1 次；
+     * proceed 已执行过则不再重复执行，杜绝双重执行。
+     */
+    private static XposedInterface.Hooker suppressPositiveBadgeCount(final XposedModule module,
+                                                                     final Feature f,
+                                                                     final String label) {
+        return new XposedInterface.Hooker() {
+            @Override
+            public Object intercept(XposedInterface.Chain chain) throws Throwable {
+                boolean proceeded = false;
+                try {
+                    Object raw = chain.getArg(1);
+                    if (raw instanceof Number && ((Number) raw).intValue() > 0) {
+                        HookKit.hit(module, f, label + " count=" + ((Number) raw).intValue());
+                        return null;
+                    }
+                    proceeded = true;
+                    return chain.proceed();
+                } catch (Throwable t) {
+                    if (proceeded) {
+                        // 原方法已执行过一次，不能再次 proceed。
+                        throw t;
+                    }
+                    HookKit.error(module, f.key + " intercept error " + label, t);
+                    return chain.proceed();
+                }
+            }
+        };
     }
 }

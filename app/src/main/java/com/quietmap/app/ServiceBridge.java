@@ -26,7 +26,7 @@ public final class ServiceBridge {
     private static boolean sListenerRegistered;
 
     /** service 真正绑定后要跑的一次性重绘；由 UI 层设置。 */
-    private static Runnable pendingRender = () -> { };
+    private static volatile Runnable pendingRender = () -> { };
 
     private ServiceBridge() {
     }
@@ -59,7 +59,8 @@ public final class ServiceBridge {
                 XposedService previous = sService.getAndSet(service);
                 Log.i(TAG, "service bound, api=" + safeApi(service) + " replaced=" + (previous != null));
                 // 绑定真正到位后再跑一次重绘，让 UI 显示真实状态。
-                pendingRender.run();
+                Runnable r = pendingRender;
+                r.run();
             }
 
             @Override

@@ -21,8 +21,9 @@ import io.github.libxposed.api.XposedModule;
  *    注意调研清单里 3 参的 falcon 参数写作 com.amap.bundle.falcon.base.a，
  *    dexsql 实测该类不存在，实际是 com.autonavi.minimap.falcon.base.a —— 以 dexsql 为准。
  * 2) 混淆类 Lze5;->attemptRequestData(IZ)V 不调用 —— 开屏广告请求调度。
- *    混淆类锚定：主方案 DexKit 方法体字符串锚定（"不发送请求" 特征串），
- *    兜底类名列表（check-mounts 查出新名后追加）；两路都失败记 skip，fail-open。
+ *    定位：类名列表优先（check-mounts 查出新名后追加，Class.forName 毫秒级命中），
+ *    DexKit 方法体字符串锚定（"不发送请求" 特征串）仅作兜底（native 加载 + 全量
+ *    扫描，冷启动开销大）；两路都失败记 skip，fail-open。
  */
 final class SplashRequestHooks {
 
@@ -46,7 +47,7 @@ final class SplashRequestHooks {
     static void install(XposedModule module, ClassLoader cl) {
         Feature f = Feature.SPLASH_REQUEST;
         try {
-            // 先挂便宜的非混淆挂载点，再做 Lze5 的 DexKit 扫描（可能耗时）。
+            // 先挂便宜的非混淆挂载点，再做 Lze5 定位（类名列表优先，DexKit 兜底）。
             Class<?> holder = HookKit.findClass(module, f, cl, ALIMAMA);
             Class<?> request = HookKit.findClass(module, f, cl, REQUEST);
             Class<?> falcon = HookKit.findClass(module, f, cl, FALCON);
@@ -74,25 +75,11 @@ final class SplashRequestHooks {
     }
 
     /**
-     * 混淆类锚定：主方案 DexKit 字符串锚定，兜底类名列表，都失败返回 null（调用方 fail-open）。
+     * 混淆类定位：类名列表优先（毫秒级，命中即返回），DexKit 字符串锚定兜底
+     * （native 加载 + 全 dex 扫描，冷启动开销大）。两路都失败返回 null（调用方 fail-open）。
      */
     private static Method resolveAttemptRequestData(XposedModule module, Feature f, ClassLoader cl) {
-        // 主方案：DexKit 按方法体特征串定位（类名改了也能找到）。
-        try {
-            Method m = DexKitLocator.findMethod(cl, null, ATTEMPT_METHOD,
-                    void.class, new Class<?>[]{int.class, boolean.class},
-                    Anchors.STR_SPLASH_REQ_NO_SEND);
-            if (m != null) {
-                HookKit.info(module, f.key + " attemptRequestData located via dexkit anchor: "
-                        + m.getDeclaringClass().getName());
-                return m;
-            }
-            HookKit.warn(module, f.key + " dexkit anchor miss, fallback to class-name list");
-        } catch (Throwable t) {
-            HookKit.warn(module, f.key + " dexkit anchor error: " + t.getMessage());
-        }
-
-        // 兜底：类名列表（check-mounts 体检出新名后追加）。
+        // 优先：类名列表（check-mounts 体检出新名后追加），避免冷启动白付 DexKit 全量扫描。
         for (String name : ATTEMPT_CLASS_NAMES) {
             try {
                 Class<?> cls = Class.forName(name, false, cl);
@@ -105,9 +92,25 @@ final class SplashRequestHooks {
             } catch (Throwable ignored) {
             }
         }
+        HookKit.warn(module, f.key + " class-name list miss, fallback to dexkit anchor");
 
-        HookKit.warn(module, f.key + " skip: attemptRequestData not found (dexkit anchor + "
-                + java.util.Arrays.toString(ATTEMPT_CLASS_NAMES) + ")");
+        // 兜底：DexKit 按方法体特征串定位（类名改了也能找到）。
+        try {
+            Method m = DexKitLocator.findMethod(cl, null, ATTEMPT_METHOD,
+                    void.class, new Class<?>[]{int.class, boolean.class},
+                    Anchors.STR_SPLASH_REQ_NO_SEND);
+            if (m != null) {
+                HookKit.info(module, f.key + " attemptRequestData located via dexkit anchor: "
+                        + m.getDeclaringClass().getName());
+                return m;
+            }
+            HookKit.warn(module, f.key + " dexkit anchor miss");
+        } catch (Throwable t) {
+            HookKit.warn(module, f.key + " dexkit anchor error: " + t.getMessage());
+        }
+
+        HookKit.warn(module, f.key + " skip: attemptRequestData not found (class-name list "
+                + java.util.Arrays.toString(ATTEMPT_CLASS_NAMES) + " + dexkit anchor)");
         HookState.markNotFound(f, "Lze5#attemptRequestData 锚定失败");
         return null;
     }

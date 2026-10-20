@@ -19,7 +19,7 @@ import java.util.WeakHashMap;
  * 懒加载 DexKitBridge 并按 ClassLoader 缓存；当类名/方法名被混淆改名时按方法体字符串锚点定位。
  * 严格禁止引用任何 androidx 类型。
  *
- * 失败语义：任何一步失败都返回 null（调用方走兜底类名列表，最终 fail-open skip），
+ * 失败语义：任何一步失败都返回 null（调用方 fail-open skip），
  * 绝不向外抛——DexKit native 加载失败不得影响宿主进程。
  */
 public final class DexKitLocator {
@@ -76,10 +76,13 @@ public final class DexKitLocator {
     /**
      * 按方法体字符串锚点定位方法。两次尝试：
      *  第一次：declaredClass(classHint) + name(methodName) + anchors；
-     *  第二次（第一次无结果时）：只按 anchors 查询，不限制类名/方法名，
+     *  第二次（仅当第一次查询为空或抛异常时）：只按 anchors 查询，不限制类名/方法名，
      *    但对候选做 returnType + paramTypes 强校验（锚点串可能被多个方法共用，
      *    例如 "不发送请求" 同时出现在 Lye5;->run()V，必须靠签名消歧）。
-     *  classHint 为空时直接走第二次。
+     *  第一次已有候选但 selectMatchingMethod 未选出（签名不匹配）时，直接复用该候选集
+     *  的筛选结果返回 null，不再执行第二次全量扫描——锚点已命中却没有签名相符的方法，
+     *  说明本 ClassLoader 内无目标，重扫只会重复付出全 dex 扫描成本。
+     *  第一次不限制类名（classHint 为空），但仍会按 methodName + anchors 查询。
      */
     public static Method findMethod(ClassLoader cl, String classHint, String methodName,
                                     Class<?> returnType, Class<?>[] paramTypes, String... anchors) {
@@ -125,12 +128,18 @@ public final class DexKitLocator {
                 if (m != null) {
                     return m;
                 }
+                // attempt1 已有候选，签名强校验未通过：复用该候选集的筛选结果直接返回，
+                // 不做 attempt2 全量重扫（锚点已命中，重扫不会产生新信息）。
+                Log.w(TAG, "DexKit findMethod attempt 1: " + list1.size()
+                        + " candidate(s) for anchors on " + classHint + "#" + methodName
+                        + " but none matched signature; attempt 2 skipped");
+                return null;
             }
         } catch (Throwable t) {
             Log.w(TAG, "DexKit findMethod attempt 1 error: " + t.getMessage());
         }
 
-        // 第二次：只按锚点，签名强校验（混淆改名后走这条）
+        // 第二次：仅当第一次查询为空或异常时才按锚点全量查询（混淆改名后走这条）
         try {
             FindMethod query2 = FindMethod.create();
             MethodMatcher matcher2 = MethodMatcher.create();

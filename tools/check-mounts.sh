@@ -9,17 +9,21 @@
 #   bash tools/check-mounts.sh "E:\download\base(5).apk"
 #
 # 依赖：E:\tools\dexsql\dexsql.exe（首次会为这个 apk 建缓存，约 40 秒）
-# 缓存默认写仓库内 tools/.dexsql-cache/（不往 APK 目录写东西）。
+# 缓存按 APK 内容区分：默认写仓库内 tools/.dexsql-cache/<sha256前16位>/，
+# 换 APK 自动换目录，不会把旧包的结果当成新包的（也不往 APK 目录写东西）。
+# 版本校验：用 D:/Android/Sdk/build-tools 下最新版本的 aapt 读 versionName，
+# 与实测版本不符只打 WARN、不中断。
 #
 # 判定规则：
 #   OK   = 类和方法都在，且方法完整签名没变，hook 大概还能挂上
 #   GONE = 类不存在了（R8/升级改了名），需要重新定位
 #   SIG  = 类还在但方法签名变了（改名 / 参数变化），看差异再决定
 #
-# 挂载点清单与 app/src/main/java/com/quietmap/app/hooks/ 下的常量一一对应，
+# 挂载点清单（共 53 条）与 app/src/main/java/com/quietmap/app/hooks/ 下的常量一一对应，
 # 完整签名取自 dexsql 对高德 17.01.0.2012 的实测。
 # 混淆类挂载点（Lze5#attemptRequestData、La8#run）另有方法体字符串锚点监控：
 # 签名在但锚点串丢了也判 SIG（运行时 DexKit 按锚点定位会失败）。
+# La8 的锚点监控与运行时 Anchors.java 保持一致：两条字符串必须同时命中。
 
 set -u
 
@@ -34,20 +38,45 @@ fi
 [ -f "$DEXSQL" ] || { echo "找不到 dexsql: $DEXSQL" >&2; exit 2; }
 [ -f "$APK" ] || { echo "找不到 APK: $APK" >&2; exit 2; }
 
-[ -z "$OUT" ] && OUT="$SCRIPT_DIR/.dexsql-cache"
+# 缓存目录按 APK 内容哈希区分：换包必然换目录，不会再拿旧包的缓存查询新包。
+APK_SHA=$(sha256sum "$APK" 2>/dev/null | cut -c1-16)
+[ -n "$APK_SHA" ] || { echo "无法计算 APK sha256（需要 sha256sum）" >&2; exit 2; }
+
+[ -z "$OUT" ] && OUT="$SCRIPT_DIR/.dexsql-cache/$APK_SHA"
 mkdir -p "$OUT"
 CACHE="$OUT/cache.dxc2"
 
 if [ ! -f "$CACHE" ]; then
   echo "== 首次为该 apk 建 DexSQL 缓存（约 40 秒）..."
-  "$DEXSQL" prepare-cache --input "$APK" --output "$OUT" --trusted-input >/dev/null 2>&1
-  [ -f "$CACHE" ] || { echo "建缓存失败" >&2; exit 1; }
+  "$DEXSQL" prepare-cache --input "$APK" --output "$OUT" >/dev/null 2>&1
+  [ -f "$CACHE" ] || { echo "建缓存失败: $CACHE" >&2; exit 1; }
 fi
 
-q() { "$DEXSQL" query-cache --cache-file "$CACHE" --trusted-input --sql "$1" 2>/dev/null; }
+# 查询失败（非 0 退出码）必须中止：不能把 dexsql 报错当成 0 行结果，
+# 否则所有挂载点都会被误判成 GONE。
+q() {
+  local out rc
+  out=$("$DEXSQL" query-cache --cache-file "$CACHE" --sql "$1" 2>&1)
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    echo "dexsql 查询失败（exit $rc）: $1" >&2
+    [ -n "$out" ] && printf '%s\n' "$out" >&2
+    exit 3
+  fi
+  printf '%s\n' "$out"
+}
 
 count() {
-  q "$1" | grep -oE '^\| [0-9]+' | tr -d '| ' | head -1
+  local out n
+  out=$(q "$1") || exit 3   # q 在子 shell 里 exit，父 shell 需要再退出一次
+  n=$(printf '%s\n' "$out" | grep -oE '^\| [0-9]+' | tr -d '| ' | head -1)
+  # 查询成功但拿不到计数值同样视为失败（正常的 SELECT count(*) 不会为空）。
+  if [ -z "$n" ]; then
+    echo "dexsql 查询结果异常（无计数值）: $1" >&2
+    [ -n "$out" ] && printf '%s\n' "$out" >&2
+    exit 3
+  fi
+  printf '%s\n' "$n"
 }
 
 # 挂载点清单：完整方法描述符|功能
@@ -92,6 +121,7 @@ Lcom/autonavi/minimap/bundle/msgbox/util/MessageBoxManager;->retrieveRemoteMessa
 Llt1;->start(Landroid/app/Activity;Lcom/autonavi/minimap/bundle/msgbox/entity/AmapMessage;)V|home_msg_filter 主图投放(接口IDeliveryDisplay实现类,混淆类)
 Lcom/amap/bundle/badgesystem/ajxmodule/AjxModuleBadge;->updateAppBadge(Ljava/lang/String;I)V|home_msg_filter 角标红点更新
 Lcom/amap/bundle/badgesystem/ajxmodule/AjxModuleBadge;->setBadgeDisplay(Ljava/lang/String;Z)V|home_msg_filter 角标显示(强制false)
+Lcom/autonavi/jni/badgesystem/BadgeSystemManager;->updateAppBadge(Ljava/lang/String;I)V|home_msg_filter 启动器角标
 Lcom/autonavi/bundle/amaphome/components/searchbar/BaseSearchBar;->requestPreSetWord(ZLjava/lang/String;)V|search_hotword 搜索框热词请求(唯一重载)
 Lcom/autonavi/bundle/uitemplate/preset/PreSetWordManager;->d(Ln55;)V|search_hotword 热词本地计数
 Lcom/autonavi/bundle/uitemplate/preset/PreSetWordManager;->e(Ljava/lang/String;Ln55;)V|search_hotword 热词天擎曝光上报
@@ -117,7 +147,34 @@ Lcom/autonavi/minimap/bundle/msgbox/util/MessageBoxManager;->fetchMessageFromMai
 
 echo
 echo "APK: $APK"
+echo "SHA256(前16位): $APK_SHA"
 echo "缓存: $CACHE"
+# ── 版本校验：与清单实测版本比对，只警告不中断 ────────────────────
+EXPECTED_VERSION="17.01.0.2012"
+AAPT=""
+BUILD_TOOLS="D:/Android/Sdk/build-tools"
+if [ -d "$BUILD_TOOLS" ]; then
+  newest_bt=$(ls -1 "$BUILD_TOOLS" 2>/dev/null | sort -V | tail -1)
+  [ -n "$newest_bt" ] && [ -f "$BUILD_TOOLS/$newest_bt/aapt.exe" ] && AAPT="$BUILD_TOOLS/$newest_bt/aapt.exe"
+fi
+if [ -z "$AAPT" ] && command -v aapt >/dev/null 2>&1; then
+  AAPT=$(command -v aapt)
+fi
+VERSION_NAME=""
+if [ -n "$AAPT" ]; then
+  VERSION_NAME=$("$AAPT" dump badging "$APK" 2>/dev/null | sed -n "s/.*versionName='\([^']*\)'.*/\1/p" | head -1)
+  echo "versionName: ${VERSION_NAME:-未知}  (aapt: $AAPT)"
+  if [ "$VERSION_NAME" != "$EXPECTED_VERSION" ]; then
+    echo
+    echo "*********************** WARN ***********************"
+    echo "  versionName=${VERSION_NAME:-未知}，与挂载点实测版本 $EXPECTED_VERSION 不一致！"
+    echo "  方法签名/锚点可能已变，下面的 OK 结果仅供参考。"
+    echo "****************************************************"
+    echo
+  fi
+else
+  echo "versionName: 跳过校验（找不到 aapt）"
+fi
 echo
 printf '%-8s %-78s %s\n' "状态" "挂载点（完整签名）" "功能"
 printf '%.0s-' {1..120}; echo
@@ -130,13 +187,13 @@ while IFS='|' read -r full feat; do
   # 完整描述符 = "<类描述符含尾分号>-><方法签名>"; 从 "->" 处劈开，
   # 注意不能用 ";->"：那个分号是类描述符自带的，劈掉就查不到类了。
   cls="${full%%->*}"
-  cls_hit=$(count "SELECT count(*) FROM classes WHERE descriptor='$cls'")
+  cls_hit=$(count "SELECT count(*) FROM classes WHERE descriptor='$cls'") || exit 3
   if [ "${cls_hit:-0}" = "0" ]; then
     printf '%-8s %-78s %s\n' "GONE" "${full#*->}" "$feat"
     gone=$((gone + 1))
     continue
   fi
-  mth_hit=$(count "SELECT count(*) FROM methods WHERE descriptor='$full'")
+  mth_hit=$(count "SELECT count(*) FROM methods WHERE descriptor='$full'") || exit 3
   if [ "${mth_hit:-0}" = "0" ]; then
     printf '%-8s %-78s %s\n' "SIG" "${full#*->}  (类在、签名变了)" "$feat"
     sig=$((sig + 1))
@@ -146,7 +203,7 @@ while IFS='|' read -r full feat; do
   anchor_note=""
   case "$full" in
     'Lze5;->attemptRequestData(IZ)V')
-      anchor_hit=$(count "SELECT count(*) FROM method_strings WHERE method='$full' AND value LIKE '%不发送请求%'")
+      anchor_hit=$(count "SELECT count(*) FROM method_strings WHERE method='$full' AND value LIKE '%不发送请求%'") || exit 3
       if [ "${anchor_hit:-0}" = "0" ]; then
         printf '%-8s %-78s %s\n' "SIG" "${full#*->}  (锚点字符串丢失,需换锚)" "$feat"
         sig=$((sig + 1))
@@ -155,9 +212,13 @@ while IFS='|' read -r full feat; do
       anchor_note=" [锚点OK]"
       ;;
     'La8;->run()V')
-      anchor_hit=$(count "SELECT count(*) FROM method_strings WHERE method='$full' AND value LIKE '%invalid download item:%'")
-      if [ "${anchor_hit:-0}" = "0" ]; then
-        printf '%-8s %-78s %s\n' "SIG" "${full#*->}  (锚点字符串丢失,需换锚)" "$feat"
+      # 与运行时 Anchors.java 对齐：DexKit 的 addUsingString 是 AND 语义，
+      # "invalid download item: "（含尾空格）与 "ImageTextMessageDownloader"
+      # 两条必须同时命中；只查其中一条会把运行时挂不上的情况误判成 OK。
+      anchor_hit=$(count "SELECT count(*) FROM method_strings WHERE method='$full' AND value LIKE '%invalid download item: %'") || exit 3
+      anchor_cls_hit=$(count "SELECT count(*) FROM method_strings WHERE method='$full' AND value LIKE '%ImageTextMessageDownloader%'") || exit 3
+      if [ "${anchor_hit:-0}" = "0" ] || [ "${anchor_cls_hit:-0}" = "0" ]; then
+        printf '%-8s %-78s %s\n' "SIG" "${full#*->}  (与运行时锚点不一致,需核对 Anchors.java)" "$feat"
         sig=$((sig + 1))
         continue
       fi
