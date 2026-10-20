@@ -54,15 +54,35 @@ fi
 
 # 查询失败（非 0 退出码）必须中止：不能把 dexsql 报错当成 0 行结果，
 # 否则所有挂载点都会被误判成 GONE。
+# stderr 单独写临时文件：成功时丢弃，失败时原样打印（不混进查询结果）。
+# 若缓存存在但查询失败（常见于 prepare-cache 记录的 source 路径失效），
+# 自动删缓存、重新 prepare-cache 一次后重试；仍失败才 exit 3。
 q() {
-  local out rc
-  out=$("$DEXSQL" query-cache --cache-file "$CACHE" --sql "$1" 2>&1)
-  rc=$?
-  if [ "$rc" -ne 0 ]; then
-    echo "dexsql 查询失败（exit $rc）: $1" >&2
-    [ -n "$out" ] && printf '%s\n' "$out" >&2
+  local out rc err retried
+  err=$(mktemp "${TMPDIR:-/tmp}/qm-dexsql-XXXXXX") || {
+    echo "无法创建临时文件（mktemp）" >&2
     exit 3
-  fi
+  }
+  retried=0
+  while :; do
+    out=$("$DEXSQL" query-cache --cache-file "$CACHE" --sql "$1" 2>"$err")
+    rc=$?
+    if [ "$rc" -eq 0 ]; then
+      break
+    fi
+    if [ "$retried" -eq 0 ] && [ -f "$CACHE" ]; then
+      echo "dexsql 查询失败（exit $rc），缓存疑似失效，重建后重试一次..." >&2
+      rm -f "$CACHE"
+      "$DEXSQL" prepare-cache --input "$APK" --output "$OUT" >/dev/null 2>&1
+      retried=1
+      continue
+    fi
+    echo "dexsql 查询失败（exit $rc）: $1" >&2
+    cat "$err" >&2
+    rm -f "$err"
+    exit 3
+  done
+  rm -f "$err"
   printf '%s\n' "$out"
 }
 
@@ -120,7 +140,7 @@ Lcom/autonavi/minimap/bundle/msgbox/util/MessageBoxManager;->getMessages(Lcom/au
 Lcom/autonavi/minimap/bundle/msgbox/util/MessageBoxManager;->retrieveRemoteMessages(Ljava/util/Set;Ljava/lang/String;)V|home_msg_filter 远程营销消息拉取
 Llt1;->start(Landroid/app/Activity;Lcom/autonavi/minimap/bundle/msgbox/entity/AmapMessage;)V|home_msg_filter 主图投放(接口IDeliveryDisplay实现类,混淆类)
 Lcom/amap/bundle/badgesystem/ajxmodule/AjxModuleBadge;->updateAppBadge(Ljava/lang/String;I)V|home_msg_filter 角标红点更新
-Lcom/amap/bundle/badgesystem/ajxmodule/AjxModuleBadge;->setBadgeDisplay(Ljava/lang/String;Z)V|home_msg_filter 角标显示(强制false)
+Lcom/amap/bundle/badgesystem/ajxmodule/AjxModuleBadge;->setBadgeDisplay(Ljava/lang/String;Z)V|home_msg_filter 角标显示(不调用)
 Lcom/autonavi/jni/badgesystem/BadgeSystemManager;->updateAppBadge(Ljava/lang/String;I)V|home_msg_filter 启动器角标
 Lcom/autonavi/bundle/amaphome/components/searchbar/BaseSearchBar;->requestPreSetWord(ZLjava/lang/String;)V|search_hotword 搜索框热词请求(唯一重载)
 Lcom/autonavi/bundle/uitemplate/preset/PreSetWordManager;->d(Ln55;)V|search_hotword 热词本地计数

@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.os.SystemClock;
+import android.util.Log;
 import android.widget.Toast;
 
 import androidx.preference.Preference;
@@ -42,13 +43,20 @@ public class SettingsFragment extends PreferenceFragmentCompat {
             });
 
     private ConfigStore mStore;
+    /** mStore 对应的 service 实例；同一实例内 remote prefs 不变，可复用避免重复 binder。 */
+    private XposedService mStoreService;
     private long mLastRefreshMs;
     private boolean mHasRefreshed;
     private XposedService mLastRefreshService;
+    /** 后台状态查询句柄：新查询提交前取消旧的，onDestroyView 取消全部。 */
+    private java.util.concurrent.Future<?> mStatusFuture;
+    /** versionName 在 Fragment 生命周期内不变，只读一次 PackageManager。 */
+    private String mVersionName;
 
     @Override
     public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
         setPreferencesFromResource(R.xml.prefs, rootKey);
+        mStoreService = ServiceBridge.get();
         mStore = new ConfigStore(requireContext());
         bindFeatures();
         refresh();
@@ -60,11 +68,22 @@ public class SettingsFragment extends PreferenceFragmentCompat {
         refresh();
     }
 
+    @Override
+    public void onDestroyView() {
+        // view 已销毁，后台查询的结果不再有用；cancel(true) 让阻塞中的 binder 尽快返回。
+        if (mStatusFuture != null) {
+            mStatusFuture.cancel(true);
+            mStatusFuture = null;
+        }
+        super.onDestroyView();
+    }
+
     /** 把 Feature 枚举里的标题/说明/开关接到 XML 声明的偏好项上。 */
     private void bindFeatures() {
         for (Feature f : Feature.values()) {
             Preference p = findPreference(f.key);
             if (p == null) {
+                Log.e("QuietMap", "preference missing for " + f.key);
                 continue;
             }
             p.setTitle(f.titleRes);
@@ -103,7 +122,12 @@ public class SettingsFragment extends PreferenceFragmentCompat {
         mLastRefreshMs = now;
         mLastRefreshService = service;
 
-        mStore = new ConfigStore(requireContext());
+        // 同一 service 实例内 remote prefs 不会变，复用 mStore 可省掉每次 refresh 的
+        // 两次 binder（getFrameworkProperties + getRemotePreferences）；换绑/断开才重建。
+        if (mStore == null || service != mStoreService) {
+            mStore = new ConfigStore(requireContext());
+            mStoreService = service;
+        }
         boolean writable = mStore.remote();
 
         Preference status = findPreference("status");
@@ -142,7 +166,11 @@ public class SettingsFragment extends PreferenceFragmentCompat {
         final boolean remoteWritable = writable;
         final String version = versionName();
         final Activity host = requireActivity();
-        sStatusExecutor.execute(() -> {
+        // 旧查询（可能仍卡在 binder 上）先取消；新结果会覆盖状态卡，无需等待旧的。
+        if (mStatusFuture != null) {
+            mStatusFuture.cancel(false);
+        }
+        mStatusFuture = sStatusExecutor.submit(() -> {
             int api = 0;
             boolean scoped = false;
             try {
@@ -260,11 +288,16 @@ public class SettingsFragment extends PreferenceFragmentCompat {
     }
 
     private String versionName() {
-        try {
-            return requireContext().getPackageManager()
-                    .getPackageInfo(requireContext().getPackageName(), 0).versionName;
-        } catch (Throwable t) {
-            return "?";
+        if (mVersionName != null) {
+            return mVersionName;
         }
+        try {
+            String v = requireContext().getPackageManager()
+                    .getPackageInfo(requireContext().getPackageName(), 0).versionName;
+            mVersionName = v != null ? v : "?";
+        } catch (Throwable t) {
+            mVersionName = "?";
+        }
+        return mVersionName;
     }
 }

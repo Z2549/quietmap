@@ -77,7 +77,10 @@ public class QuietMapModule extends XposedModule {
         try {
             Hooks.installAll(this, param.getClassLoader(), mainProcess);
         } catch (Throwable t) {
-            log(Log.ERROR, TAG, "install aborted", t);
+            // 安装失败时回滚标记：否则后续 onPackageReady 全部被 "already installed"
+            // 挡掉，一次异常会让整个进程永久处于半挂载状态。
+            sInstalled.set(false);
+            log(Log.ERROR, TAG, "install aborted, will retry on next package ready", t);
         }
     }
 }

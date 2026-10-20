@@ -60,6 +60,11 @@ public final class Hooks {
     private Hooks() {
     }
 
+    /** 已注册安装器的 Feature 集合；包内可见，供 HooksTest 校验与枚举一一对应。 */
+    static java.util.Set<Feature> installerKeys() {
+        return INSTALLERS.keySet();
+    }
+
     /**
      * @param mainProcess 当前是否为主进程（进程名 == 包名）。非主进程（:locationservice、
      *                    :widgetProvider）关闭 DexKit：那里只需要类名/方法名兜底（Wave 1 已把

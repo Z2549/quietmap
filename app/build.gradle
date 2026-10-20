@@ -11,6 +11,9 @@ def keystoreProps = new Properties()
 if (keystorePropsFile.exists()) {
     keystorePropsFile.withInputStream { keystoreProps.load(it) }
 }
+// 完整判定：文件存在且 storeFile 已配置。只有一半的 keystore.properties
+// （例如只写了 storePassword）同样视为缺失，避免 release 静默退回 debug 签名。
+def hasKeystore = keystorePropsFile.exists() && keystoreProps.getProperty("storeFile")
 
 android {
     namespace 'com.quietmap.app'
@@ -29,7 +32,7 @@ android {
     }
 
     signingConfigs {
-        if (keystoreProps.getProperty("storeFile")) {
+        if (hasKeystore) {
             release {
                 storeFile rootProject.file(keystoreProps.getProperty("storeFile"))
                 storePassword keystoreProps.getProperty("storePassword")
@@ -87,12 +90,13 @@ android {
 }
 
 // AAR 元数据检查豁免（仅影响构建期校验，不改任何运行时行为）：
-// 1) io.github.libxposed:service:102.0.0 —— AAR 元数据声明 minCompileSdk 37，
-//    但本机平台目录是 android-37.0（AGP 解析不了），只能 compileSdk 36。
+// 1) io.github.libxposed:service:102.0.0 的 AAR 元数据声明 minCompileSdk 37，
+//    本机平台目录是 android-37.0（AGP 解析不了），只能 compileSdk 36。
 //    该库只做 binder 转发，不使用任何 37 新 API。
-// 2) io.github.libxposed:interface 组（api / annotation）—— 与 service 同批发布，
-//    但 api/annotation 两个坐标不触发 AAR 元数据检查，无需额外豁免；
-//    列出是为了说明本豁免段只服务 service，不影响 interface。
+// 2) io.github.libxposed:api:102.0.0 的 api-102.0.0.aar 同样带 minCompileSdk=37
+//    的 aar-metadata，理由同上；annotation 是普通 jar，不触发该检查。
+//    因此受影响的坐标是 service 与 api 两项。
+// 3) 行为仍是全局禁用 check*AarMetadata（AGP 的豁免是按任务而非按坐标）。
 // 若未来改用 compileSdk 37，把这段删掉即可。
 tasks.configureEach { task ->
     if (task.name.startsWith("check") && task.name.endsWith("AarMetadata")) {
@@ -130,10 +134,12 @@ dependencies {
     implementation 'org.luckypray:dexkit:2.3.0'
 }
 
-// release 必须使用正式签名：keystore.properties 缺失时在任务执行阶段直接失败，
-// 避免静默产出 debug 签名的“正式版”。debug 构建不受影响。
-if (!keystorePropsFile.exists()) {
-    tasks.matching { it.name == "assembleRelease" || it.name == "bundleRelease" }.configureEach {
-        doFirst { throw new GradleException("缺少 keystore.properties：release 构建必须使用正式签名（参考 docs/DEVELOPMENT.md）") }
+// release 必须使用正式签名：keystore.properties 缺失 / storeFile 未配置时，
+// 只要本次任务图里出现 release 变体任务就在执行前失败，避免静默产出 debug 签名版本。
+// 用 taskGraph.whenReady 覆盖 assemble/package/install/bundle 全部入口；debug 不受影响。
+def releaseTaskNames = ["assembleRelease", "packageRelease", "installRelease", "bundleRelease"]
+gradle.taskGraph.whenReady { graph ->
+    if (!hasKeystore && graph.allTasks.any { it.project == project && releaseTaskNames.contains(it.name) }) {
+        throw new GradleException("缺少有效 keystore.properties（storeFile 未配置）：release 构建必须使用正式签名")
     }
 }

@@ -1,6 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!--
+        Android 11+ 包可见性：ReportProvider 用 getPackagesForUid() 反查高德 UID
+        对应的包名；没有这条 queries 声明时，目标包对模块不可见，校验会误判失败。
+    -->
+    <queries>
+        <package android:name="com.autonavi.minimap" />
+    </queries>
+
     <application
         android:allowBackup="false"
         android:description="@string/module_description"

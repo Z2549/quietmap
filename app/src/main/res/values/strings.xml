@@ -18,7 +18,7 @@
     <string name="status_detail_not_running">框架 API %1$d · 启动高德后生效 · v%2$s</string>
     <string name="status_detail_connecting">绑定成功后自动刷新</string>
     <string name="status_remote_ok">remote prefs：可用，开关改动高德进程可读</string>
-    <string name="status_remote_fail">remote prefs：不可用，开关暂存本地、当前不生效</string>
+    <string name="status_remote_fail">remote prefs：不可用，框架未连接，开关不可用</string>
 
     <!-- 分组 -->
     <string name="group_splash">开屏净化</string>
