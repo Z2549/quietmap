@@ -24,8 +24,8 @@ android {
         applicationId "io.github.yigenhuobah.quietmap"
         minSdk 29
         targetSdk 36
-        versionCode 5
-        versionName "0.5.0"
+        versionCode 6
+        versionName "0.5.1"
     }
 
     signingConfigs {
@@ -86,9 +86,13 @@ android {
     }
 }
 
-// libxposed service/interface 102 的 AAR 元数据声明 minCompileSdk 37，
-// 但本机平台目录是 android-37.0（AGP 解析不了），只能 compileSdk 36。
-// 这两个 AAR 不使用任何 37 新 API（service 只转发 binder），关闭 AAR 元数据检查。
+// AAR 元数据检查豁免（仅影响构建期校验，不改任何运行时行为）：
+// 1) io.github.libxposed:service:102.0.0 —— AAR 元数据声明 minCompileSdk 37，
+//    但本机平台目录是 android-37.0（AGP 解析不了），只能 compileSdk 36。
+//    该库只做 binder 转发，不使用任何 37 新 API。
+// 2) io.github.libxposed:interface 组（api / annotation）—— 与 service 同批发布，
+//    但 api/annotation 两个坐标不触发 AAR 元数据检查，无需额外豁免；
+//    列出是为了说明本豁免段只服务 service，不影响 interface。
 // 若未来改用 compileSdk 37，把这段删掉即可。
 tasks.configureEach { task ->
     if (task.name.startsWith("check") && task.name.endsWith("AarMetadata")) {
@@ -116,8 +120,20 @@ dependencies {
     implementation 'androidx.preference:preference:1.2.1'
 
     testImplementation 'junit:junit:4.13.2'
+    // HookKitTest 会加载 HookKit 类，其方法签名引用 XposedInterface.Hooker；
+    // 主源码用 compileOnly，编译期可见但 AGP 单测 runtime classpath 不包含它，
+    // 故为测试运行期补同一坐标（不新增任何新库，仅补运行期可见性）。
+    testImplementation 'io.github.libxposed:api:102.0.0'
 
     // splash_request 的 Lze5.attemptRequestData 混淆类锚定（dexkit/ 包），
     // 打进模块 APK 供宿主进程内运行时扫描，native so 见 packaging.jniLibs。
     implementation 'org.luckypray:dexkit:2.3.0'
+}
+
+// release 必须使用正式签名：keystore.properties 缺失时在任务执行阶段直接失败，
+// 避免静默产出 debug 签名的“正式版”。debug 构建不受影响。
+if (!keystorePropsFile.exists()) {
+    tasks.matching { it.name == "assembleRelease" || it.name == "bundleRelease" }.configureEach {
+        doFirst { throw new GradleException("缺少 keystore.properties：release 构建必须使用正式签名（参考 docs/DEVELOPMENT.md）") }
+    }
 }

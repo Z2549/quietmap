@@ -200,7 +200,8 @@ final class HomeMsgFilterHooks {
                 try {
                     Object raw = chain.getArg(1);
                     if (raw instanceof Number && ((Number) raw).intValue() > 0) {
-                        HookKit.hit(module, f, label + " count=" + ((Number) raw).intValue());
+                        HookKit.hit(module, f, f.key + " hit " + label
+                                + " count=" + ((Number) raw).intValue());
                         return null;
                     }
                     proceeded = true;

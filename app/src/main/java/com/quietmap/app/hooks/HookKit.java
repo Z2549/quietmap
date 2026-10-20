@@ -117,9 +117,18 @@ final class HookKit {
         }
     }
 
-    static void hit(XposedModule module, Feature f, String detail) {
-        HookState.hit(f);
-        module.log(Log.INFO, TAG, f.key + " hit " + detail);
+    /**
+     * 命中计数并采样打日志。
+     *
+     * 参数 logLine 是**已预拼接好的完整日志行**（形如 "&lt;featureId&gt; hit ..."），
+     * 由各工厂在构造 Hooker 时拼好，避免每次命中重复拼串。
+     * 日志采样：仅前 5 次命中与每第 100 次命中真正写 logcat，计数每次照常累加。
+     */
+    static void hit(XposedModule module, Feature f, String logLine) {
+        long count = HookState.hit(f);
+        if (count <= 5 || count % 100 == 0) {
+            module.log(Log.INFO, TAG, logLine);
+        }
     }
 
     /**
@@ -128,11 +137,12 @@ final class HookKit {
      */
     static XposedInterface.Hooker skipVoid(final XposedModule module, final Feature f,
                                            final String detail) {
+        final String logLine = f.key + " hit " + detail;
         return new XposedInterface.Hooker() {
             @Override
             public Object intercept(XposedInterface.Chain chain) throws Throwable {
                 try {
-                    hit(module, f, detail);
+                    hit(module, f, logLine);
                     return null;
                 } catch (Throwable t) {
                     error(module, f.key + " intercept error " + detail, t);
@@ -148,11 +158,12 @@ final class HookKit {
      */
     static XposedInterface.Hooker constBool(final XposedModule module, final Feature f,
                                             final String detail, final boolean value) {
+        final String logLine = f.key + " hit " + detail;
         return new XposedInterface.Hooker() {
             @Override
             public Object intercept(XposedInterface.Chain chain) throws Throwable {
                 try {
-                    hit(module, f, detail);
+                    hit(module, f, logLine);
                     return value ? Boolean.TRUE : Boolean.FALSE;
                 } catch (Throwable t) {
                     error(module, f.key + " intercept error " + detail, t);
@@ -170,11 +181,12 @@ final class HookKit {
      */
     static XposedInterface.Hooker constValue(final XposedModule module, final Feature f,
                                              final String detail, final Object value) {
+        final String logLine = f.key + " hit " + detail;
         return new XposedInterface.Hooker() {
             @Override
             public Object intercept(XposedInterface.Chain chain) throws Throwable {
                 try {
-                    hit(module, f, detail);
+                    hit(module, f, logLine);
                     return value;
                 } catch (Throwable t) {
                     error(module, f.key + " intercept error " + detail, t);

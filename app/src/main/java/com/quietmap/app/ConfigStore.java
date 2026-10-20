@@ -36,15 +36,21 @@ final class ConfigStore {
         }
     }
 
-    void put(String key, boolean value) {
+    /**
+     * 写开关。成功（remote 或 local 的 apply 没抛异常）返回 true；
+     * 抛异常返回 false，由调用方提示并回滚 UI，不能让失败静默吞掉。
+     */
+    boolean put(String key, boolean value) {
         try {
             SharedPreferences sp = mRemote != null ? mRemote : mLocal;
             sp.edit().putBoolean(key, value).apply();
             if (mRemote == null) {
                 Log.w(TAG, "config written to LOCAL prefs (framework not bound): " + key);
             }
+            return true;
         } catch (Throwable t) {
             Log.w(TAG, "config write failed: " + key, t);
+            return false;
         }
     }
 }

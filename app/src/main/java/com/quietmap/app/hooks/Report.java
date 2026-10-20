@@ -82,9 +82,18 @@ final class Report {
         extras.putStringArray("keys", keys.toArray(new String[0]));
         extras.putStringArray("values", values.toArray(new String[0]));
         try {
-            context.getContentResolver().call(
+            Bundle result = context.getContentResolver().call(
                     Uri.parse("content://" + ReportProvider.AUTHORITY), "report", null, extras);
-            sLast = batch;
+            if (result != null) {
+                sLast = batch;
+                return;
+            }
+            // call() 返回 null 视为 provider 暂不可达：与抛异常一样退避 60 秒，
+            // 不更新 sLast，下次内容变化或退避到期后再试。
+            sNextTry = System.currentTimeMillis() + 60_000L;
+            if (sErrors++ < 3) {
+                Log.w(TAG, "report provider returned null");
+            }
         } catch (Throwable t) {
             // 模块 App 未启动、被系统拦截等情况：一分钟后再试，别每 3 秒刷日志。
             sNextTry = System.currentTimeMillis() + 60_000L;

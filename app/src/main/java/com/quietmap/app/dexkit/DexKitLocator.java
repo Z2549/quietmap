@@ -28,6 +28,8 @@ public final class DexKitLocator {
 
     private static final Map<ClassLoader, DexKitBridge> sBridgeCache = new WeakHashMap<>();
     private static volatile String sModuleNativeDir = null;
+    /** 非主进程（:locationservice/:widgetProvider）关闭 DexKit，避免 native 全 dex 扫描开销。 */
+    private static volatile boolean sEnabled = true;
 
     private DexKitLocator() {
     }
@@ -35,6 +37,14 @@ public final class DexKitLocator {
     /** 模块 APK 的 nativeLibraryDir（libdexkit.so 解压位置），onModuleLoaded 时注入。 */
     public static void setModuleNativeDir(String dir) {
         sModuleNativeDir = dir;
+    }
+
+    /**
+     * 由 {@code Hooks.installAll} 在安装前按进程设置：主进程 true，其余进程 false。
+     * 必须在 {@code app.hooks} 包可见，故为 public。
+     */
+    public static void setEnabled(boolean enabled) {
+        sEnabled = enabled;
     }
 
     public static synchronized DexKitBridge getBridge(ClassLoader cl) {
@@ -86,6 +96,11 @@ public final class DexKitLocator {
      */
     public static Method findMethod(ClassLoader cl, String classHint, String methodName,
                                     Class<?> returnType, Class<?>[] paramTypes, String... anchors) {
+        if (!sEnabled) {
+            // 非主进程直接跳过：调用方此前已尝试类名/方法名直取，DexKit 只是最后的兜底。
+            Log.w(TAG, "dexkit disabled in non-main process");
+            return null;
+        }
         if (cl == null || anchors == null || anchors.length == 0) {
             return null;
         }

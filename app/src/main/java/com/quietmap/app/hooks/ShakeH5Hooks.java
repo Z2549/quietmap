@@ -5,6 +5,9 @@ import android.hardware.SensorEvent;
 import com.quietmap.app.Feature;
 
 import java.lang.reflect.Method;
+import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
 
 import io.github.libxposed.api.XposedInterface;
 import io.github.libxposed.api.XposedModule;
@@ -53,6 +56,26 @@ final class ShakeH5Hooks {
     private static final String SENSOR_HELPER =
             "com.autonavi.nebulax.utils.SensorManagerHelper";
 
+    /**
+     * H5Event#getAction() 反射结果缓存（按运行时具体类）。
+     * 空 Optional 是负缓存（该类没有/拿不到 getAction），避免每次事件都反复反射找方法。
+     * 有界性：H5Event 具体子类在单个进程内通常唯一/极少，缓存规模可忽略。
+     */
+    private static final ConcurrentHashMap<Class<?>, Optional<Method>> GET_ACTION =
+            new ConcurrentHashMap<>();
+
+    private static final Function<Class<?>, Optional<Method>> LOOKUP_GET_ACTION =
+            new Function<Class<?>, Optional<Method>>() {
+                @Override
+                public Optional<Method> apply(Class<?> type) {
+                    try {
+                        return Optional.of(type.getMethod("getAction"));
+                    } catch (Throwable t) {
+                        return Optional.empty();
+                    }
+                }
+            };
+
     private ShakeH5Hooks() {
     }
 
@@ -89,6 +112,7 @@ final class ShakeH5Hooks {
     private static XposedInterface.Hooker watchShakeFilter(final XposedModule module,
                                                            final Feature f,
                                                            final String label) {
+        final String hitLine = f.key + " hit " + label + " watchShake";
         return new XposedInterface.Hooker() {
             @Override
             public Object intercept(XposedInterface.Chain chain) throws Throwable {
@@ -97,14 +121,17 @@ final class ShakeH5Hooks {
                     try {
                         Object event = chain.getArg(0);
                         if (event != null) {
-                            Method getAction = event.getClass().getMethod("getAction");
-                            action = getAction.invoke(event);
+                            Optional<Method> getAction = GET_ACTION.computeIfAbsent(
+                                    event.getClass(), LOOKUP_GET_ACTION);
+                            if (getAction.isPresent()) {
+                                action = getAction.get().invoke(event);
+                            }
                         }
                     } catch (Throwable ignored) {
                         // 拿不到 action 就当普通事件放行
                     }
                     if ("watchShake".equals(action)) {
-                        HookKit.hit(module, f, label + " watchShake");
+                        HookKit.hit(module, f, hitLine);
                         return Boolean.TRUE;
                     }
                 } catch (Throwable t) {

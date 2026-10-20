@@ -47,26 +47,17 @@ public final class HookState {
         return s;
     }
 
-    public static void enable(Feature f) {
-    }
-
     public static void installed(Feature f, String label) {
         state(f).labels.add(label);
-    }
-
-    public static void markNotFound(Feature f) {
-        markNotFound(f, "定位失败");
     }
 
     public static void markNotFound(Feature f, String reason) {
         state(f).markSkip(reason);
     }
 
-    public static void hit(Feature f) {
-        state(f).hits.incrementAndGet();
-    }
-
-    public static void note(Feature f, String text) {
+    /** 命中计数 +1，返回累加后的次数（供 HookKit 做日志采样）。 */
+    public static long hit(Feature f) {
+        return state(f).hits.incrementAndGet();
     }
 
     // ---- 快照（供 Report 回传） ----

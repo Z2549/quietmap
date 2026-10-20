@@ -1,12 +1,17 @@
 package com.quietmap.app;
 
+import android.app.Activity;
 import android.content.SharedPreferences;
 import android.os.Bundle;
+import android.os.SystemClock;
+import android.widget.Toast;
 
 import androidx.preference.Preference;
 import androidx.preference.PreferenceFragmentCompat;
 
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import io.github.libxposed.service.HookedTarget;
 import io.github.libxposed.service.XposedService;
@@ -22,7 +27,24 @@ public class SettingsFragment extends PreferenceFragmentCompat {
 
     private static final String TARGET = "com.autonavi.minimap";
 
+    /** 两次 refresh 的最小间隔，压掉 onCreatePreferences / onResume / 绑定回调三连。 */
+    private static final long REFRESH_MIN_INTERVAL_MS = 1000L;
+
+    /**
+     * 状态卡的框架查询是同步 binder（getApiVersion/getScope/getRunningTargets），
+     * 放后台单线程执行，避免框架卡顿时拖住设置页首帧。
+     */
+    private static final ExecutorService sStatusExecutor =
+            Executors.newSingleThreadExecutor(r -> {
+                Thread t = new Thread(r, "qm-settings-status");
+                t.setDaemon(true);
+                return t;
+            });
+
     private ConfigStore mStore;
+    private long mLastRefreshMs;
+    private boolean mHasRefreshed;
+    private XposedService mLastRefreshService;
 
     @Override
     public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
@@ -49,7 +71,13 @@ public class SettingsFragment extends PreferenceFragmentCompat {
             p.setSummary(f.summaryRes);
             p.setOnPreferenceChangeListener((pref, value) -> {
                 if (value instanceof Boolean) {
-                    mStore.put(f.key, (Boolean) value);
+                    boolean ok = mStore.put(f.key, (Boolean) value);
+                    if (!ok) {
+                        Toast.makeText(requireContext(), "写入失败：开关未保存",
+                                Toast.LENGTH_SHORT).show();
+                        // 返回 false：MaterialSwitch 回滚到旧状态，避免"看着改了实际没写进去"。
+                        return false;
+                    }
                 }
                 return true;
             });
@@ -62,48 +90,30 @@ public class SettingsFragment extends PreferenceFragmentCompat {
 
     /** 重新读取框架状态与开关值。service 绑定后由 Activity 调一次。 */
     void refresh() {
+        long now = SystemClock.elapsedRealtime();
+        XposedService service = ServiceBridge.get();
+        // 1 秒内的重复调用丢弃；但 binder 刚绑上/断开属于新信息，必须放行，
+        // 否则绑定回调恰好落在窗口内会把状态卡永久卡在「连接中」。
+        if (mHasRefreshed
+                && now - mLastRefreshMs < REFRESH_MIN_INTERVAL_MS
+                && service == mLastRefreshService) {
+            return;
+        }
+        mHasRefreshed = true;
+        mLastRefreshMs = now;
+        mLastRefreshService = service;
+
         mStore = new ConfigStore(requireContext());
         boolean writable = mStore.remote();
 
         Preference status = findPreference("status");
         if (status != null) {
-            XposedService service = ServiceBridge.get();
             if (service == null) {
                 status.setTitle(R.string.status_connecting);
                 status.setSummary(R.string.status_detail_connecting);
+                appendRemoteState(status, writable);
             } else {
-                int api = 0;
-                boolean scoped = false;
-                try {
-                    api = service.getApiVersion();
-                } catch (Throwable ignored) {
-                }
-                try {
-                    List<String> scope = service.getScope();
-                    scoped = scope != null && scope.contains(TARGET);
-                } catch (Throwable ignored) {
-                }
-                // getRunningTargets 是 API 102 的"当前真的被注入的进程"，
-                // 只有它非空才能说明模块已启用——光看 service 绑定会误报"已激活"。
-                boolean injected = isTargetRunning(service);
-                if (!scoped) {
-                    status.setTitle(R.string.status_inactive);
-                    status.setSummary(getString(R.string.status_detail_no_scope, api, versionName()));
-                } else if (injected) {
-                    status.setTitle(R.string.status_active);
-                    status.setSummary(getString(R.string.status_detail_active, api, versionName()));
-                } else {
-                    status.setTitle(R.string.status_connected);
-                    status.setSummary(getString(R.string.status_detail_not_running, api, versionName()));
-                }
-            }
-            // remote prefs 可用性单独挂在状态卡副标题里，抓「开关写不进框架」这个坑。
-            if (writable) {
-                status.setSummary(status.getSummary() + "\n"
-                        + getString(R.string.status_remote_ok));
-            } else {
-                status.setSummary(status.getSummary() + "\n"
-                        + getString(R.string.status_remote_fail));
+                loadStatusAsync(service, writable);
             }
         }
 
@@ -121,6 +131,72 @@ public class SettingsFragment extends PreferenceFragmentCompat {
         if (diag != null) {
             diag.setSummary(diagSummary());
         }
+    }
+
+    /**
+     * 状态卡的 service 查询全在后台单线程跑，结果回主线程写 UI。
+     * Fragment 已 detach（Activity 销毁）或 service 已换绑时整份结果丢弃。
+     */
+    private void loadStatusAsync(XposedService service, boolean writable) {
+        final XposedService bound = service;
+        final boolean remoteWritable = writable;
+        final String version = versionName();
+        final Activity host = requireActivity();
+        sStatusExecutor.execute(() -> {
+            int api = 0;
+            boolean scoped = false;
+            try {
+                api = bound.getApiVersion();
+            } catch (Throwable ignored) {
+            }
+            try {
+                List<String> scope = bound.getScope();
+                scoped = scope != null && scope.contains(TARGET);
+            } catch (Throwable ignored) {
+            }
+            // getRunningTargets 是 API 102 的"当前真的被注入的进程"，
+            // 只有它非空才能说明模块已启用——光看 service 绑定会误报"已激活"。
+            boolean injected = isTargetRunning(bound);
+            final int finalApi = api;
+            final boolean finalScoped = scoped;
+            // Activity 已销毁：丢弃结果，不要往死 UI 上写。
+            if (!isAdded() || getActivity() != host) {
+                return;
+            }
+            host.runOnUiThread(() -> {
+                if (!isAdded() || getActivity() != host) {
+                    return;
+                }
+                // service 已死/换绑，这份结果过期了。
+                if (ServiceBridge.get() != bound) {
+                    return;
+                }
+                Preference p = findPreference("status");
+                if (p == null) {
+                    return;
+                }
+                if (!finalScoped) {
+                    p.setTitle(R.string.status_inactive);
+                    p.setSummary(getString(R.string.status_detail_no_scope, finalApi, version));
+                } else if (injected) {
+                    p.setTitle(R.string.status_active);
+                    p.setSummary(getString(R.string.status_detail_active, finalApi, version));
+                } else {
+                    p.setTitle(R.string.status_connected);
+                    p.setSummary(getString(R.string.status_detail_not_running, finalApi, version));
+                }
+                p.setSummary(p.getSummary() + "\n"
+                        + getString(remoteWritable
+                                ? R.string.status_remote_ok
+                                : R.string.status_remote_fail));
+            });
+        });
+    }
+
+    /** remote prefs 可用性单独挂在状态卡副标题里，抓「开关写不进框架」这个坑。 */
+    private void appendRemoteState(Preference status, boolean writable) {
+        status.setSummary(status.getSummary() + "\n"
+                + getString(writable ? R.string.status_remote_ok : R.string.status_remote_fail));
     }
 
     /**

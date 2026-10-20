@@ -38,10 +38,6 @@ public class MaterialSwitchPreference extends Preference {
         }
     }
 
-    public boolean isCheckedValue() {
-        return mChecked;
-    }
-
     /**
      * android:dependency 依赖的是这个：父开关关闭时把子项置灰。
      * 基类 Preference 的默认实现看的是 isEnabled()，对开关语义不对。
