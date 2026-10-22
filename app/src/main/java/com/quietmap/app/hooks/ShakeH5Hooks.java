@@ -86,7 +86,7 @@ final class ShakeH5Hooks {
             installH5SensorPlugin(module, f, cl);
             installMiniProgramShake(module, f, cl);
         } catch (Throwable t) {
-            HookKit.error(module, f.key + " install aborted", t);
+            HookKit.error(module, f.id + " install aborted", t);
         }
     }
 
@@ -112,7 +112,7 @@ final class ShakeH5Hooks {
     private static XposedInterface.Hooker watchShakeFilter(final XposedModule module,
                                                            final Feature f,
                                                            final String label) {
-        final String hitLine = f.key + " hit " + label + " watchShake";
+        final String hitLine = f.id + " hit " + label + " watchShake";
         return new XposedInterface.Hooker() {
             @Override
             public Object intercept(XposedInterface.Chain chain) throws Throwable {
@@ -135,7 +135,7 @@ final class ShakeH5Hooks {
                         return Boolean.TRUE;
                     }
                 } catch (Throwable t) {
-                    HookKit.error(module, f.key + " intercept error " + label, t);
+                    HookKit.error(module, f.id + " intercept error " + label, t);
                 }
                 return chain.proceed();
             }

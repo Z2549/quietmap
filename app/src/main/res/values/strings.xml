@@ -1,41 +1,57 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">QuietMap</string>
-    <string name="module_description">让高德地图安静下来：后台净化、数据层断源、收敛弹窗。</string>
+    <string name="app_name">静途 (QuietMap)</string>
+    <string name="app_subtitle">v%1$s</string>
+    <string name="app_description">让高德地图安静下来：后台净化、数据层断源、收敛弹窗。</string>
+    <string name="app_target_name">高德地图</string>
 
-    <!-- 界面外壳 -->
-    <string name="about_title">关于 QuietMap</string>
-    <string name="about_body">版本 %1$s\n后台净化 + 数据层断源 · libxposed API 102\n\n本模块与高德地图官方无任何关联，仅供学习、研究和个人设备使用。使用可能违反目标应用的服务条款，风险由使用者自行承担。\n\nMIT License\ngithub.com/yigenhuobah/quietmap</string>
-
-    <!-- 顶部状态卡 -->
+    <!-- 状态卡 -->
     <string name="status_title">模块状态</string>
-    <string name="status_active">已激活</string>
-    <string name="status_connected">框架已连接</string>
-    <string name="status_inactive">未激活</string>
     <string name="status_connecting">正在连接框架…</string>
-    <string name="status_detail_active">框架 API %1$d · 已注入高德 · v%2$s</string>
-    <string name="status_detail_no_scope">框架 API %1$d · 作用域未勾选 com.autonavi.minimap · v%2$s</string>
-    <string name="status_detail_not_running">框架 API %1$d · 启动高德后生效 · v%2$s</string>
-    <string name="status_detail_connecting">绑定成功后自动刷新</string>
-    <string name="status_remote_ok">remote prefs：可用，开关改动高德进程可读</string>
-    <string name="status_remote_fail">remote prefs：不可用，框架未连接，开关不可用</string>
+    <string name="status_inactive">未激活</string>
+    <string name="status_connected">框架已连接</string>
+    <string name="status_active">已激活</string>
+    <string name="status_detail_connecting">目标 %1$s · 绑定成功后自动刷新</string>
+    <string name="status_detail_no_scope">框架 API %1$d · 在 LSPosed 中启用模块并勾选%2$s · 目标 %3$s · v%4$s</string>
+    <string name="status_detail_not_running">框架 API %1$d · 启动%2$s后生效 · 目标 %3$s · v%4$s</string>
+    <string name="status_detail_active">框架 API %1$d · 已注入%2$s · 目标 %3$s · v%4$s</string>
+    <string name="status_unknown_version">未知</string>
+    <string name="status_remote_ok">remote prefs：可用，开关改动目标进程可读</string>
+    <string name="status_remote_fail">remote prefs：不可用，开关不可用</string>
+    <string name="status_banner_version">目标应用版本 %1$s 未适配（适配版本 %2$s）。功能可能失效。</string>
+    <string name="status_banner_failed">%1$d 项功能未生效。打开诊断页查看 skip 原因。</string>
 
     <!-- 分组 -->
-    <string name="group_splash">开屏净化</string>
-    <string name="group_bg">后台净化</string>
-    <string name="group_data">数据层断源</string>
-    <string name="group_ui">界面</string>
-    <string name="group_home">首页净化</string>
-    <string name="group_search_promo">搜索与推广净化</string>
-    <string name="group_popup_track">弹窗与统计净化</string>
-    <string name="group_shake">摇一摇</string>
+    <string name="group_ad">广告净化</string>
+    <string name="group_ui">界面精简</string>
+    <string name="group_pv">隐私保护</string>
+    <string name="group_en">功能增强</string>
+    <string name="group_ex">实验功能</string>
 
-    <!-- 诊断卡 -->
-    <string name="diag_title">诊断</string>
-    <string name="diag_hint">registered=挂载成功 · hit N=命中次数 · skip=已跳过。数据来自高德进程回传，重新进入本页时刷新。</string>
+    <!-- 二级页入口 -->
+    <string name="page_diagnostics">诊断</string>
+    <string name="page_diagnostics_summary">逐功能查看挂载与命中</string>
+    <string name="page_about">关于</string>
+    <string name="page_about_summary">版本、源码与四模块互链</string>
 
     <!-- 页脚 -->
-    <string name="footer_limits">仅保证高德 17.01.0.2012，其它版本尽力而为。</string>
+    <string name="footer_restart">修改后重启%1$s生效</string>
+    <string name="footer_compat">仅保证%1$s %2$s，其它版本尽力而为</string>
+
+    <!-- 诊断页 -->
+    <string name="diag_title">诊断</string>
+    <string name="diag_header">数据来自目标进程回传 · 刷新时间 %1$s</string>
+    <string name="diag_hint">registered=挂载成功，hit=命中次数，skip=跳过原因</string>
+    <string name="diag_empty_title">暂无诊断数据</string>
+    <string name="diag_empty">启动%1$s后重新进入本页</string>
+    <string name="diag_refresh">刷新</string>
+    <string name="diag_refresh_summary">重新读取目标进程回传数据</string>
+    <string name="diag_copy">复制诊断信息</string>
+    <string name="diag_copy_summary">复制全部功能的 registered/hit/skip</string>
+    <string name="diag_copied">诊断信息已复制</string>
+    <string name="diag_blocked">暂不支持：%1$s</string>
+    <string name="diag_no_data">—</string>
+    <string name="f_blocked_summary">暂不支持：%1$s</string>
 
     <!-- 功能标题与说明 -->
     <string name="f_splash_gate_title">开屏广告拦截</string>
@@ -76,4 +92,32 @@
     <string name="f_track_suppress_summary">不发送开屏曝光/点击埋点与 UT 统计事件（纯统计，不影响地图功能）</string>
     <string name="f_shake_h5_title">H5 与小程序摇一摇净化</string>
     <string name="f_shake_h5_summary">不注册 H5/小程序摇一摇传感器，保留页面正常振动反馈</string>
+
+    <!-- 关于页 -->
+    <string name="about_title">关于</string>
+    <string name="about_version">版本 %1$s（%2$d）</string>
+    <string name="about_target">目标应用</string>
+    <string name="about_target_value">%1$s（%2$s）· 适配 %3$s</string>
+    <string name="about_source">源码</string>
+    <string name="about_source_summary">%1$s</string>
+    <string name="about_links_title">模块互链</string>
+    <string name="about_links_summary">点击模块名打开 GitHub 仓库</string>
+    <string name="about_current_mark">（当前）</string>
+    <string name="about_module_cloudmusictool">云音乐工具箱</string>
+    <string name="about_module_cloudmusictool_en">CloudMusicTool</string>
+    <string name="about_module_quietbox">静盒</string>
+    <string name="about_module_quietbox_en">QuietBox</string>
+    <string name="about_module_quietmap">静途</string>
+    <string name="about_module_quietmap_en">QuietMap</string>
+    <string name="about_module_tiebaquiet">贴吧静净</string>
+    <string name="about_module_tiebaquiet_en">TiebaQuiet</string>
+    <string name="about_disclaimer_title">免责声明</string>
+    <string name="about_disclaimer">本模块与%1$s官方无任何关联，仅供学习、研究和个人设备使用。使用可能违反目标应用的服务条款，风险由使用者自行承担。</string>
+    <string name="about_license_title">许可证</string>
+    <string name="about_license_summary">%1$s · 查看 LICENSE</string>
+
+    <!-- 动作与提示 -->
+    <string name="action_write_failed">写入失败：开关未保存。请确认框架已连接</string>
+    <string name="action_open_failed">无法打开链接，请检查浏览器</string>
+    <string name="action_back">返回</string>
 </resources>

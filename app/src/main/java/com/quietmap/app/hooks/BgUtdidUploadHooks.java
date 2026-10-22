@@ -38,7 +38,7 @@ final class BgUtdidUploadHooks {
             HookKit.install(module, f, "UtdidUploadTask#reqServer", reqServer,
                     HookKit.constBool(module, f, "UtdidUploadTask#reqServer", false));
         } catch (Throwable t) {
-            HookKit.error(module, f.key + " install aborted", t);
+            HookKit.error(module, f.id + " install aborted", t);
         }
     }
 }

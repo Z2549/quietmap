@@ -55,14 +55,14 @@ final class HookKit {
     @Nullable
     static Class<?> findClass(XposedModule module, Feature f, ClassLoader cl, String name) {
         if (isFrameworkClass(name)) {
-            warn(module, f.key + " skip: framework class refused " + name);
+            warn(module, f.id + " skip: framework class refused " + name);
             HookState.markNotFound(f, "框架类黑名单 " + name);
             return null;
         }
         try {
             return Class.forName(name, false, cl);
         } catch (Throwable t) {
-            warn(module, f.key + " skip: class not found " + name);
+            warn(module, f.id + " skip: class not found " + name);
             HookState.markNotFound(f, "类未找到 " + name);
             return null;
         }
@@ -73,7 +73,7 @@ final class HookKit {
                              Class<?>... params) {
         Method m = findMethodQuiet(cls, name, params);
         if (m == null) {
-            warn(module, f.key + " skip: method not found "
+            warn(module, f.id + " skip: method not found "
                     + (cls == null ? "?" : cls.getName()) + "#" + name);
             HookState.markNotFound(f, "方法未找到 " + name);
         }
@@ -98,20 +98,20 @@ final class HookKit {
             return false;
         }
         if (isFrameworkClass(m.getDeclaringClass().getName())) {
-            warn(module, f.key + " hook failed " + label + ": framework class refused");
+            warn(module, f.id + " hook failed " + label + ": framework class refused");
             HookState.markNotFound(f, "框架类黑名单 " + m.getDeclaringClass().getName());
             return false;
         }
         try {
             module.hook(m)
-                    .setId(f.key + "#" + label)
+                    .setId(f.id + "#" + label)
                     .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
                     .intercept(hooker);
             HookState.installed(f, label);
-            info(module, f.key + " registered " + label);
+            info(module, f.id + " registered " + label);
             return true;
         } catch (Throwable t) {
-            error(module, f.key + " hook failed " + label, t);
+            error(module, f.id + " hook failed " + label, t);
             HookState.markNotFound(f, "hook 失败 " + label);
             return false;
         }
@@ -137,7 +137,7 @@ final class HookKit {
      */
     static XposedInterface.Hooker skipVoid(final XposedModule module, final Feature f,
                                            final String detail) {
-        final String logLine = f.key + " hit " + detail;
+        final String logLine = f.id + " hit " + detail;
         return new XposedInterface.Hooker() {
             @Override
             public Object intercept(XposedInterface.Chain chain) throws Throwable {
@@ -145,7 +145,7 @@ final class HookKit {
                     hit(module, f, logLine);
                     return null;
                 } catch (Throwable t) {
-                    error(module, f.key + " intercept error " + detail, t);
+                    error(module, f.id + " intercept error " + detail, t);
                     return chain.proceed();
                 }
             }
@@ -158,7 +158,7 @@ final class HookKit {
      */
     static XposedInterface.Hooker constBool(final XposedModule module, final Feature f,
                                             final String detail, final boolean value) {
-        final String logLine = f.key + " hit " + detail;
+        final String logLine = f.id + " hit " + detail;
         return new XposedInterface.Hooker() {
             @Override
             public Object intercept(XposedInterface.Chain chain) throws Throwable {
@@ -166,7 +166,7 @@ final class HookKit {
                     hit(module, f, logLine);
                     return value ? Boolean.TRUE : Boolean.FALSE;
                 } catch (Throwable t) {
-                    error(module, f.key + " intercept error " + detail, t);
+                    error(module, f.id + " intercept error " + detail, t);
                     return chain.proceed();
                 }
             }
@@ -181,7 +181,7 @@ final class HookKit {
      */
     static XposedInterface.Hooker constValue(final XposedModule module, final Feature f,
                                              final String detail, final Object value) {
-        final String logLine = f.key + " hit " + detail;
+        final String logLine = f.id + " hit " + detail;
         return new XposedInterface.Hooker() {
             @Override
             public Object intercept(XposedInterface.Chain chain) throws Throwable {
@@ -189,7 +189,7 @@ final class HookKit {
                     hit(module, f, logLine);
                     return value;
                 } catch (Throwable t) {
-                    error(module, f.key + " intercept error " + detail, t);
+                    error(module, f.id + " intercept error " + detail, t);
                     return chain.proceed();
                 }
             }

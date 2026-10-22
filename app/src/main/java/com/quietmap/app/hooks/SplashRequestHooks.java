@@ -70,7 +70,7 @@ final class SplashRequestHooks {
             HookKit.install(module, f, "Lze5#attemptRequestData(IZ)", attempt,
                     HookKit.skipVoid(module, f, "Lze5#attemptRequestData(IZ)"));
         } catch (Throwable t) {
-            HookKit.error(module, f.key + " install aborted", t);
+            HookKit.error(module, f.id + " install aborted", t);
         }
     }
 
@@ -85,14 +85,14 @@ final class SplashRequestHooks {
                 Class<?> cls = Class.forName(name, false, cl);
                 Method m = HookKit.findMethodQuiet(cls, ATTEMPT_METHOD, int.class, boolean.class);
                 if (m != null) {
-                    HookKit.info(module, f.key
+                    HookKit.info(module, f.id
                             + " attemptRequestData located via class-name list: " + name);
                     return m;
                 }
             } catch (Throwable ignored) {
             }
         }
-        HookKit.warn(module, f.key + " class-name list miss, fallback to dexkit anchor");
+        HookKit.warn(module, f.id + " class-name list miss, fallback to dexkit anchor");
 
         // 兜底：DexKit 按方法体特征串定位（类名改了也能找到）。
         try {
@@ -100,16 +100,16 @@ final class SplashRequestHooks {
                     void.class, new Class<?>[]{int.class, boolean.class},
                     Anchors.STR_SPLASH_REQ_NO_SEND);
             if (m != null) {
-                HookKit.info(module, f.key + " attemptRequestData located via dexkit anchor: "
+                HookKit.info(module, f.id + " attemptRequestData located via dexkit anchor: "
                         + m.getDeclaringClass().getName());
                 return m;
             }
-            HookKit.warn(module, f.key + " dexkit anchor miss");
+            HookKit.warn(module, f.id + " dexkit anchor miss");
         } catch (Throwable t) {
-            HookKit.warn(module, f.key + " dexkit anchor error: " + t.getMessage());
+            HookKit.warn(module, f.id + " dexkit anchor error: " + t.getMessage());
         }
 
-        HookKit.warn(module, f.key + " skip: attemptRequestData not found (class-name list "
+        HookKit.warn(module, f.id + " skip: attemptRequestData not found (class-name list "
                 + java.util.Arrays.toString(ATTEMPT_CLASS_NAMES) + " + dexkit anchor)");
         HookState.markNotFound(f, "Lze5#attemptRequestData 锚定失败");
         return null;

@@ -27,7 +27,7 @@ final class H5InstallApkHooks {
             HookKit.install(module, f, "DeviceInfo#installApk", m,
                     HookKit.skipVoid(module, f, "DeviceInfo#installApk"));
         } catch (Throwable t) {
-            HookKit.error(module, f.key + " install aborted", t);
+            HookKit.error(module, f.id + " install aborted", t);
         }
     }
 }

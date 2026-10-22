@@ -1,4 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    主设置页：状态卡 -> 异常横幅 -> AD/UI/PV 分组 -> 诊断/关于入口 -> 页脚。
+    每个功能行的 android:key 必须与 Feature.key 完全一致；
+    标题/摘要由 SettingsFragment 从 Feature 注入，这里只声明 key 与分组图标。
+-->
 <PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
 
     <Preference
@@ -7,125 +12,113 @@
         android:selectable="false"
         android:title="@string/status_title" />
 
-    <PreferenceCategory android:title="@string/group_splash">
+    <Preference
+        android:key="warning"
+        android:layout="@layout/preference_warning_banner"
+        android:selectable="false"
+        android:visible="false" />
+
+    <PreferenceCategory android:title="@string/group_ad">
 
         <com.quietmap.app.MaterialSwitchPreference
-            android:icon="@drawable/ic_ui"
+            android:icon="@drawable/ic_group_ad"
             android:key="splash_gate" />
 
         <com.quietmap.app.MaterialSwitchPreference
-            android:icon="@drawable/ic_ads"
+            android:icon="@drawable/ic_group_ad"
             android:key="splash_request" />
 
         <com.quietmap.app.MaterialSwitchPreference
-            android:icon="@drawable/ic_ads"
+            android:icon="@drawable/ic_group_ad"
             android:key="splash_shake" />
 
-    </PreferenceCategory>
-
-    <PreferenceCategory android:title="@string/group_bg">
-
         <com.quietmap.app.MaterialSwitchPreference
-            android:icon="@drawable/ic_ads"
+            android:icon="@drawable/ic_group_ad"
             android:key="bg_msg_fetch" />
 
         <com.quietmap.app.MaterialSwitchPreference
-            android:icon="@drawable/ic_ads"
-            android:key="bg_awaken_report" />
-
-    </PreferenceCategory>
-
-    <PreferenceCategory android:title="@string/group_data">
-
-        <com.quietmap.app.MaterialSwitchPreference
-            android:icon="@drawable/ic_content"
+            android:icon="@drawable/ic_group_ad"
             android:key="bg_afc_taoke" />
 
         <com.quietmap.app.MaterialSwitchPreference
-            android:icon="@drawable/ic_content"
-            android:key="bg_utdid_upload" />
+            android:icon="@drawable/ic_group_ad"
+            android:key="home_banner" />
 
         <com.quietmap.app.MaterialSwitchPreference
-            android:icon="@drawable/ic_content"
-            android:key="h5_install_apk" />
+            android:icon="@drawable/ic_group_ad"
+            android:key="home_operate_bar" />
+
+        <com.quietmap.app.MaterialSwitchPreference
+            android:icon="@drawable/ic_group_ad"
+            android:key="h5_ad_log" />
+
+        <com.quietmap.app.MaterialSwitchPreference
+            android:icon="@drawable/ic_group_ad"
+            android:key="map_float_layer" />
+
+        <com.quietmap.app.MaterialSwitchPreference
+            android:icon="@drawable/ic_group_ad"
+            android:key="msg_image_text" />
+
+        <com.quietmap.app.MaterialSwitchPreference
+            android:icon="@drawable/ic_group_ad"
+            android:key="shake_h5" />
 
     </PreferenceCategory>
 
     <PreferenceCategory android:title="@string/group_ui">
 
         <com.quietmap.app.MaterialSwitchPreference
-            android:icon="@drawable/ic_ui"
+            android:icon="@drawable/ic_group_ui"
             android:key="popup_upgrade" />
 
-    </PreferenceCategory>
-
-    <PreferenceCategory android:title="@string/group_home">
-
         <com.quietmap.app.MaterialSwitchPreference
-            android:icon="@drawable/ic_ads"
-            android:key="home_banner" />
-
-        <com.quietmap.app.MaterialSwitchPreference
-            android:icon="@drawable/ic_content"
-            android:key="home_operate_bar" />
-
-        <com.quietmap.app.MaterialSwitchPreference
-            android:icon="@drawable/ic_content"
+            android:icon="@drawable/ic_group_ui"
             android:key="home_msg_filter" />
 
-    </PreferenceCategory>
-
-    <PreferenceCategory android:title="@string/group_search_promo">
-
         <com.quietmap.app.MaterialSwitchPreference
-            android:icon="@drawable/ic_content"
+            android:icon="@drawable/ic_group_ui"
             android:key="search_hotword" />
 
         <com.quietmap.app.MaterialSwitchPreference
-            android:icon="@drawable/ic_ads"
-            android:key="h5_ad_log" />
-
-        <com.quietmap.app.MaterialSwitchPreference
-            android:icon="@drawable/ic_ui"
-            android:key="map_float_layer" />
-
-        <com.quietmap.app.MaterialSwitchPreference
-            android:icon="@drawable/ic_content"
-            android:key="msg_image_text" />
+            android:icon="@drawable/ic_group_ui"
+            android:key="popup_clean" />
 
     </PreferenceCategory>
 
-    <PreferenceCategory android:title="@string/group_popup_track">
+    <PreferenceCategory android:title="@string/group_pv">
 
         <com.quietmap.app.MaterialSwitchPreference
-            android:icon="@drawable/ic_ui"
-            android:key="popup_clean" />
+            android:icon="@drawable/ic_group_pv"
+            android:key="bg_awaken_report" />
 
         <com.quietmap.app.MaterialSwitchPreference
-            android:icon="@drawable/ic_content"
+            android:icon="@drawable/ic_group_pv"
+            android:key="bg_utdid_upload" />
+
+        <com.quietmap.app.MaterialSwitchPreference
+            android:icon="@drawable/ic_group_pv"
+            android:key="h5_install_apk" />
+
+        <com.quietmap.app.MaterialSwitchPreference
+            android:icon="@drawable/ic_group_pv"
             android:key="track_suppress" />
 
     </PreferenceCategory>
 
-    <PreferenceCategory android:title="@string/group_shake">
-
-        <com.quietmap.app.MaterialSwitchPreference
-            android:icon="@drawable/ic_ui"
-            android:key="shake_h5" />
-
-    </PreferenceCategory>
+    <Preference
+        android:key="page_diagnostics"
+        android:summary="@string/page_diagnostics_summary"
+        android:title="@string/page_diagnostics" />
 
     <Preference
-        android:key="diag"
-        android:layout="@layout/preference_status_card"
-        android:selectable="false"
-        android:title="@string/diag_title"
-        android:summary="@string/diag_hint" />
+        android:key="page_about"
+        android:summary="@string/page_about_summary"
+        android:title="@string/page_about" />
 
     <Preference
         android:key="footer"
         android:layout="@layout/preference_footer"
-        android:selectable="false"
-        android:summary="@string/footer_limits" />
+        android:selectable="false" />
 
 </PreferenceScreen>

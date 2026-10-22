@@ -1,41 +1,55 @@
 package com.quietmap.app;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 
-import java.util.Arrays;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 /**
- * Feature key ↔ 编译期默认值映射。
- * key 是 remote prefs 两读一写共用的键，改了会连带断掉已保存的开关状态，必须锁死。
+ * Feature 编号、key 与编译期默认值映射。
+ *
+ * id 是统一功能编号，可随重编号调整；key 是 remote prefs 两读一写共用的键，
+ * 改了会连带断掉已保存的开关状态，必须锁死。默认值遵循统一策略：
+ * AD/UI 默认开，PV/EN/EX 默认关。
  */
 public class FeatureTest {
 
-    private static final Set<String> EXPECTED_KEYS = new HashSet<>(Arrays.asList(
-            "splash_gate",
-            "splash_request",
-            "splash_shake",
-            "bg_msg_fetch",
-            "bg_awaken_report",
-            "bg_afc_taoke",
-            "bg_utdid_upload",
-            "h5_install_apk",
-            "popup_upgrade",
-            "home_banner",
-            "home_operate_bar",
-            "home_msg_filter",
-            "search_hotword",
-            "h5_ad_log",
-            "map_float_layer",
-            "msg_image_text",
-            "popup_clean",
-            "track_suppress",
-            "shake_h5"
-    ));
+    /** 统一编号格式：AD/UI/PV/EN/EX + 两位序号。 */
+    private static final Pattern ID_PATTERN = Pattern.compile("^(AD|UI|PV|EN|EX)-\\d{2}$");
+
+    /** FEATURE_ID_MAP.md 2.3 节 QuietMap 表：key → id，顺序即设置页顺序。 */
+    private static final Map<String, String> EXPECTED_IDS = new LinkedHashMapBuilder()
+            .put("splash_gate", "AD-01")
+            .put("splash_request", "AD-02")
+            .put("splash_shake", "AD-03")
+            .put("bg_msg_fetch", "AD-04")
+            .put("bg_awaken_report", "PV-01")
+            .put("bg_afc_taoke", "AD-05")
+            .put("bg_utdid_upload", "PV-02")
+            .put("h5_install_apk", "PV-03")
+            .put("popup_upgrade", "UI-01")
+            .put("home_banner", "AD-06")
+            .put("home_operate_bar", "AD-07")
+            .put("home_msg_filter", "UI-02")
+            .put("search_hotword", "UI-03")
+            .put("h5_ad_log", "AD-08")
+            .put("map_float_layer", "AD-09")
+            .put("msg_image_text", "AD-10")
+            .put("popup_clean", "UI-04")
+            .put("track_suppress", "PV-04")
+            .put("shake_h5", "AD-11")
+            .build();
+
+    @Test
+    public void nineteenFeaturesPresent() {
+        assertEquals("Feature 数量必须是 19", 19, Feature.values().length);
+    }
 
     @Test
     public void keysMatchSpec() {
@@ -43,14 +57,26 @@ public class FeatureTest {
         for (Feature f : Feature.values()) {
             actual.add(f.key);
         }
-        assertEquals(EXPECTED_KEYS, actual);
+        assertEquals(new HashSet<>(EXPECTED_IDS.keySet()), actual);
     }
 
     @Test
-    public void allDefaultsEnabled() {
+    public void idsMatchSpecAndEnumOrder() {
+        assertEquals("枚举顺序必须与设置页顺序一致",
+                new java.util.ArrayList<>(EXPECTED_IDS.keySet()), keysInEnumOrder());
         for (Feature f : Feature.values()) {
-            assertTrue(f.key + " 应默认开启", f.defaultEnabled);
+            assertEquals("编号与 FEATURE_ID_MAP 不一致: " + f.key,
+                    EXPECTED_IDS.get(f.key), f.id);
         }
+    }
+
+    @Test
+    public void idsAreUnique() {
+        Set<String> seen = new HashSet<>();
+        for (Feature f : Feature.values()) {
+            assertTrue("id 重复: " + f.id, seen.add(f.id));
+        }
+        assertEquals(Feature.values().length, seen.size());
     }
 
     @Test
@@ -59,6 +85,62 @@ public class FeatureTest {
         for (Feature f : Feature.values()) {
             assertTrue("key 重复: " + f.key, seen.add(f.key));
         }
-        assertEquals(EXPECTED_KEYS.size(), seen.size());
+        assertEquals(EXPECTED_IDS.size(), seen.size());
+    }
+
+    @Test
+    public void idsUseUnifiedFormat() {
+        for (Feature f : Feature.values()) {
+            assertTrue("id 格式不合法: " + f.id, ID_PATTERN.matcher(f.id).matches());
+        }
+    }
+
+    @Test
+    public void adAndUiDefaultEnabled() {
+        for (Feature f : Feature.values()) {
+            if (f.id.startsWith("AD-") || f.id.startsWith("UI-")) {
+                assertTrue(f.id + " " + f.key + " 应默认开启", f.defaultEnabled);
+            }
+        }
+    }
+
+    @Test
+    public void pvEnExDefaultDisabled() {
+        for (Feature f : Feature.values()) {
+            if (f.id.startsWith("PV-") || f.id.startsWith("EN-") || f.id.startsWith("EX-")) {
+                assertFalse(f.id + " " + f.key + " 应默认关闭", f.defaultEnabled);
+            }
+        }
+    }
+
+    @Test
+    public void defaultEnabledMatchesGroupPolicy() {
+        for (Feature f : Feature.values()) {
+            boolean expected = f.id.startsWith("AD-") || f.id.startsWith("UI-");
+            assertEquals(f.id + " " + f.key + " 默认值与分组策略不符",
+                    expected, f.defaultEnabled);
+        }
+    }
+
+    private static java.util.List<String> keysInEnumOrder() {
+        java.util.List<String> keys = new java.util.ArrayList<>();
+        for (Feature f : Feature.values()) {
+            keys.add(f.key);
+        }
+        return keys;
+    }
+
+    /** 小工具：避免匿名双花括号初始化（会生成额外内部类）。 */
+    private static final class LinkedHashMapBuilder {
+        private final Map<String, String> map = new java.util.LinkedHashMap<>();
+
+        LinkedHashMapBuilder put(String key, String value) {
+            map.put(key, value);
+            return this;
+        }
+
+        Map<String, String> build() {
+            return map;
+        }
     }
 }

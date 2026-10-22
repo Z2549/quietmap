@@ -1,54 +1,93 @@
-# QuietMap
+# 静途 (QuietMap)
 
 让高德地图安静下来的 LSPosed 模块：后台净化、数据层断源、收敛弹窗与统计上报。
 
-- 目标：高德地图 **17.01.0.2012**（`com.autonavi.minimap`）
-- 框架：LSPosed / libxposed API 102
-- 版本：0.5.1（versionCode 6）
-- 许可：MIT
+> 当前版本 **0.6.0**（2026-10-22，versionCode 7）。
+> 目标应用：**高德地图 17.01.0.2012**（`com.autonavi.minimap`）。
+> 与高德地图官方无任何关联，仅供学习、研究和个人设备使用。
 
-> 本模块与高德地图官方无任何关联，仅供学习、研究和个人设备使用。使用可能违反目标应用的服务条款，风险由使用者自行承担。
+**仓库**：<https://github.com/yigenhuobah/quietmap> ｜ **下载**：[Releases](https://github.com/yigenhuobah/quietmap/releases)
+
+## 兼容性
+
+| 项 | 值 |
+|---|---|
+| 目标应用 | `com.autonavi.minimap` **17.01.0.2012** |
+| 模块包名 | `io.github.yigenhuobah.quietmap` |
+| Xposed API | libxposed API 102（`minApiVersion=102` / `targetApiVersion=102`） |
+| 系统要求 | Android 10+（minSdk 29） |
+| 框架 | 支持 API 102 的 LSPosed / Vector |
+| 架构 | Java 17 + XML + Material 3，无 Kotlin/Compose |
+
+## 安装
+
+1. 安装 `quietmap-0.6.0.apk`。
+2. 在 LSPosed 管理器中启用「静途」，作用域勾选「高德地图」。
+3. 强制停止并重新打开高德地图。
+4. 打开模块 App，确认状态卡显示「已激活」。
+5. 按需开关功能；修改后重启高德地图生效。
 
 ## 功能
 
-19 个开关，全部默认开启。装上即净，遇到个别场景可在模块设置里单独关闭。
+默认值遵循：广告净化（AD）与界面精简（UI）开启，隐私保护（PV）关闭。每项均可单独关闭。
 
-| # | 分组 | key | 功能 |
-|---|---|---|---|
-| 1 | 开屏净化 | `splash_gate` | 开屏广告拦截（`canShowSplash` 返回 FALSE + 展示层兜底） |
-| 2 | 开屏净化 | `splash_request` | 开屏广告请求断源（`sendSplashScreen` 全重载 + 混淆调度类） |
-| 3 | 开屏净化 | `splash_shake` | 摇一摇开屏禁用（清空引导/提示，关闭速度严格判定） |
-| 4 | 后台净化 | `bg_msg_fetch` | 后台营销消息拉取净化（亮屏触发、后台拉取、推送处理、主图拉取） |
-| 5 | 后台净化 | `bg_awaken_report` | 唤端上报断源 |
-| 6 | 数据层断源 | `bg_afc_taoke` | 淘宝客广告 SDK 冷启动注册断源 |
-| 7 | 数据层断源 | `bg_utdid_upload` | 设备指纹上传与服务端交换断源 |
-| 8 | 数据层断源 | `h5_install_apk` | H5 静默下载安装 APK 断源 |
-| 9 | 界面 | `popup_upgrade` | 升级弹窗屏蔽 |
-| 10 | 首页净化 | `home_banner` | 首页 Banner 拉取与加载断源 |
-| 11 | 首页净化 | `home_operate_bar` | 首页运营活动条与地图消息气泡屏蔽 |
-| 12 | 首页净化 | `home_msg_filter` | 首页消息/红点数据层断源、主图投放与角标红点净化（`AjxModuleBadge` + 启动器角标 `BadgeSystemManager#updateAppBadge`，count>0 抑制 / count<=0 放行） |
-| 13 | 搜索与推广净化 | `search_hotword` | 搜索热词净化（不影响输入联想） |
-| 14 | 搜索与推广净化 | `h5_ad_log` | H5 广告点击/曝光监测断源 |
-| 15 | 搜索与推广净化 | `map_float_layer` | 地图运营浮层挂件不注册 |
-| 16 | 搜索与推广净化 | `msg_image_text` | 营销图文消息素材下载断源 |
-| 17 | 弹窗与统计净化 | `popup_clean` | 升级提示配置不下载、首页弹窗冲突队列不入队 |
-| 18 | 弹窗与统计净化 | `track_suppress` | 开屏埋点、开屏日志与 UT 统计上报断源 |
-| 19 | 摇一摇 | `shake_h5` | H5/小程序摇一摇传感器不注册（保留页面正常振动） |
+### 广告净化（AD，默认开）
+
+| ID | key | 功能 |
+|---|---|---|
+| AD-01 | `splash_gate` | 开屏广告拦截（`canShowSplash` 返回 FALSE + 展示层兜底） |
+| AD-02 | `splash_request` | 开屏广告请求断源（`sendSplashScreen` 全重载 + 混淆调度类） |
+| AD-03 | `splash_shake` | 摇一摇开屏禁用（清空引导/提示，关闭速度严格判定） |
+| AD-04 | `bg_msg_fetch` | 后台营销消息拉取净化（亮屏触发、后台拉取、推送处理、主图拉取） |
+| AD-05 | `bg_afc_taoke` | 淘宝客广告 SDK 冷启动注册断源 |
+| AD-06 | `home_banner` | 首页 Banner 拉取与加载断源 |
+| AD-07 | `home_operate_bar` | 首页运营活动条与地图消息气泡屏蔽 |
+| AD-08 | `h5_ad_log` | H5 广告点击/曝光监测断源 |
+| AD-09 | `map_float_layer` | 地图运营浮层挂件不注册 |
+| AD-10 | `msg_image_text` | 营销图文消息素材下载断源 |
+| AD-11 | `shake_h5` | H5/小程序摇一摇传感器不注册（保留页面正常振动） |
+
+### 界面精简（UI，默认开）
+
+| ID | key | 功能 |
+|---|---|---|
+| UI-01 | `popup_upgrade` | 升级弹窗屏蔽 |
+| UI-02 | `home_msg_filter` | 首页消息/红点数据层断源、主图投放与角标红点净化 |
+| UI-03 | `search_hotword` | 搜索热词净化（不影响输入联想） |
+| UI-04 | `popup_clean` | 升级提示配置不下载、首页弹窗冲突队列不入队（中风险，可单关） |
+
+### 隐私保护（PV，默认关）
+
+| ID | key | 功能 |
+|---|---|---|
+| PV-01 | `bg_awaken_report` | 唤端上报断源 |
+| PV-02 | `bg_utdid_upload` | 设备指纹上传与服务端交换断源 |
+| PV-03 | `h5_install_apk` | H5 静默下载安装 APK 断源 |
+| PV-04 | `track_suppress` | 开屏埋点、开屏日志与 UT 统计上报断源 |
 
 `popup_clean` 属于中风险项：它拦截的是首页通用弹窗冲突队列，可能连带吞掉功能引导、分享口令等业务弹窗。遇到异常弹窗缺失时单独关闭这一项即可。
 
-## 安装与使用
+## 设置页
 
-1. 在已安装 LSPosed（libxposed API 102）的设备上安装 `quietmap-0.5.1.apk`。
-2. 在 LSPosed 管理器里启用 QuietMap，作用域勾选 **高德地图**（`com.autonavi.minimap`）。
-3. 强制停止高德后重新打开（或重启设备）。
-4. 打开 QuietMap 设置页：
-   - 顶部状态卡显示「已激活」表示模块已注入高德进程；
-   - 「remote prefs：可用」表示开关改动能被高德进程读到；
-   - 诊断卡按功能列出 `registered` / `hit N` / `skip`，用于确认钩子是否生效。
-5. 按需关闭单项开关；开关改动在下一次高德进程启动后生效（部分钩子随进程生命周期安装）。
+单 Activity、单页分组，无底部导航与侧栏：
 
-## 兼容性
+- **状态卡**：正在连接框架… / 未激活 / 框架已连接 / 已激活，四态不新增第五态；副文案显示框架 API、目标版本与 remote prefs 可用性。
+- **异常横幅**：目标版本未适配，或已启用且明确失败的功能数 ≥2 时显示；目标应用未安装、只有 1 项失败、没有诊断数据时不显示。
+- **功能开关**：按 AD → UI → PV 分组；标题与摘要来自功能清单，值写入框架 remote prefs。
+- **诊断页**：逐功能显示 `registered · hit N · skip 原因`，无数据显示 `—`；页首显示数据来源与刷新时间，页尾提供「刷新」「复制诊断信息」；进入页面与 `onResume` 刷新，不自动轮询。
+- **关于页**：模块名、版本名/versionCode、目标应用与适配版本、源码、四模块互链、免责声明、许可证。
+- **页脚**：重启生效与兼容版本提示。
+
+## 模块互链
+
+| 模块 | 仓库 |
+|---|---|
+| 云音乐工具箱 (CloudMusicTool) | <https://github.com/yigenhuobah/cloudmusictool> |
+| 静盒 (QuietBox) | <https://github.com/yigenhuobah/quietbox> |
+| 静途 (QuietMap) | <https://github.com/yigenhuobah/quietmap> |
+| 贴吧静净 (TiebaQuiet) | <https://github.com/yigenhuobah/tiebaquiet> |
+
+## 兼容性说明
 
 **仅保证高德地图 17.01.0.2012。** 其它版本尽力而为：大多数挂载点是非混淆业务类，升级后大概率仍在，但方法签名可能变化。升级高德后先跑挂载点体检：
 
@@ -77,7 +116,7 @@ bash tools/check-mounts.sh "E:\path\to\amap.apk"
 
 ## 全量覆盖矩阵
 
-对照调研报告 `B-hook点.md` 的 40+ 点位，逐条给出结论。批号与开关名对应实现；「有意不做」附理由；「技术不可行」指 dex 层没有可安全落地的本地实现。
+对照前期调研的 40+ 点位，逐条给出结论。批号与开关名对应实现；「有意不做」附理由；「技术不可行」指 dex 层没有可安全落地的本地实现。
 
 | B 报告点位 | 分类 | 批号 / 开关 | 说明 |
 |---|---|---|---|
@@ -134,20 +173,21 @@ bash tools/check-mounts.sh "E:\path\to\amap.apk"
 | 7.3a 后台消息拉取 | 已覆盖 | 批1+批5 `bg_msg_fetch` | 亮屏触发/后台拉取/主图拉取全断 |
 | 7.3b `MessageBoxManager.handlePush` | 已覆盖 | 批5 `bg_msg_fetch` | 不调用，不影响通道注册 |
 | 7.3c `PushManager` / `PushBindReceiver` | 有意不做 | — | 小米/华为/荣耀/Heytap/Vivo 推送通道必需，hook 会破坏 token 注册 |
-| 7.4 个性化推荐 | 技术不可行 | — | 云控/动态模板，无本地总开关；已从消息/搜索数据入口近似收敛 |
-| AJX 金刚区/结果页推广卡 | 技术不可行 | — | 模板包渲染，dex 只有桥接/数据入口 |
+| 7.4 个性化推荐 | 技术不可行 | — | 云控/动态下发，无本地总开关；已从消息/搜索数据入口近似收敛 |
+| AJX 金刚区/结果页推广卡 | 技术不可行 | — | 动态包渲染，dex 只有桥接/数据入口 |
 | 画布 / WebView 广告 | 技术不可行 | — | 需 AJX/WebView 逆向，Java 层无稳定挂载点 |
 
 ## 从源码构建
 
+要求：JDK 17、Android SDK Platform 37、Gradle 8.13。
+
 ```bash
-cd quietmap
-./gradlew test assembleDebug assembleRelease
+JAVA_HOME="F:/Program Files/Java/jdk-17" ./gradlew test assembleDebug assembleRelease
 bash tools/check-mounts.sh
 ```
 
-工具链：AGP 8.12.2 + Gradle wrapper 8.13 + JDK 21，compileSdk 36 / minSdk 29 / targetSdk 36。
-release 产物：`app/build/outputs/apk/release/quietmap-0.5.1.apk`（R8 minify + shrinkResources）。
+工具链：AGP 8.13.2 + Gradle wrapper 8.13 + JDK 17，compileSdk 37 / minSdk 29 / targetSdk 36。
+release 产物：`app/build/outputs/apk/release/quietmap-0.6.0.apk`（R8 minify + shrinkResources）。
 签名读取仓库根目录 `keystore.properties`；缺少该文件时 release 构建直接失败，不会产出用 debug 证书签名的包。
 
 ## GPL 红线

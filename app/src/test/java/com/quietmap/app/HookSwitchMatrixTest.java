@@ -24,7 +24,7 @@ public class HookSwitchMatrixTest {
             overrides.put(off.key, false);
             Config c = Config.fromOverrides(overrides);
             for (Feature f : Feature.values()) {
-                boolean expected = f != off;
+                boolean expected = f != off && f.defaultEnabled;
                 assertEquals("关掉 " + off.key + " 后 " + f.key + " 状态不对",
                         expected, c.enabled(f));
             }
@@ -40,7 +40,7 @@ public class HookSwitchMatrixTest {
             overrides.put(off.key, false);
             Config c = Config.fromOverrides(overrides);
             for (Feature f : Feature.values()) {
-                boolean expected = f != off;
+                boolean expected = f != off && f.defaultEnabled;
                 assertEquals("关掉 " + off.key + " 后 " + f.key + " 状态不对",
                         expected, c.enabled(f));
             }
@@ -56,7 +56,7 @@ public class HookSwitchMatrixTest {
             overrides.put(off.key, false);
             Config c = Config.fromOverrides(overrides);
             for (Feature f : Feature.values()) {
-                boolean expected = f != off;
+                boolean expected = f != off && f.defaultEnabled;
                 assertEquals("关掉 " + off.key + " 后 " + f.key + " 状态不对",
                         expected, c.enabled(f));
             }
@@ -72,7 +72,7 @@ public class HookSwitchMatrixTest {
             overrides.put(off.key, false);
             Config c = Config.fromOverrides(overrides);
             for (Feature f : Feature.values()) {
-                boolean expected = f != off;
+                boolean expected = f != off && f.defaultEnabled;
                 assertEquals("关掉 " + off.key + " 后 " + f.key + " 状态不对",
                         expected, c.enabled(f));
             }
@@ -80,10 +80,10 @@ public class HookSwitchMatrixTest {
     }
 
     @Test
-    public void emptyOverridesAllEnabled() {
+    public void emptyOverridesUseDefaults() {
         Config c = Config.fromOverrides(new HashMap<String, Boolean>());
         for (Feature f : Feature.values()) {
-            assertEquals(f.key + " 默认应开启", true, c.enabled(f));
+            assertEquals(f.id + " 应使用编译期默认值", f.defaultEnabled, c.enabled(f));
         }
     }
 
@@ -94,7 +94,7 @@ public class HookSwitchMatrixTest {
             overrides.put(off.key, false);
             Config c = Config.fromOverrides(overrides);
             for (Feature f : Feature.values()) {
-                boolean expected = f != off;
+                boolean expected = f != off && f.defaultEnabled;
                 assertEquals("关掉 " + off.key + " 后 " + f.key + " 状态不对",
                         expected, c.enabled(f));
             }
@@ -120,7 +120,7 @@ public class HookSwitchMatrixTest {
         overrides.put("not_a_feature", false);
         Config c = Config.fromOverrides(overrides);
         for (Feature f : Feature.values()) {
-            assertEquals(true, c.enabled(f));
+            assertEquals(f.id + " 应保持默认值", f.defaultEnabled, c.enabled(f));
         }
     }
 
@@ -128,7 +128,7 @@ public class HookSwitchMatrixTest {
     public void nullOverridesFallBackToDefaults() {
         Config c = Config.fromOverrides(null);
         for (Feature f : Feature.values()) {
-            assertEquals(true, c.enabled(f));
+            assertEquals(f.id + " 应回退默认值", f.defaultEnabled, c.enabled(f));
         }
     }
 }

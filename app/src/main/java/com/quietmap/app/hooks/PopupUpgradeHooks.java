@@ -34,7 +34,7 @@ final class PopupUpgradeHooks {
                         HookKit.constBool(module, f, "AppUpgradeController#q", false));
             }
         } catch (Throwable t) {
-            HookKit.error(module, f.key + " install aborted", t);
+            HookKit.error(module, f.id + " install aborted", t);
         }
     }
 }

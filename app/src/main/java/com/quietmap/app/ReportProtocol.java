@@ -8,7 +8,7 @@ import java.util.Set;
  * 报表通道的纯 Java 协议逻辑：键白名单、取值长度、命中计数合并。
  *
  * 不依赖任何 android.*，可直接在 JVM 单测（见 ReportProtocolTest）；
- * ReportProvider 只做 Binder / SharedPreferences 胶水，校验规则集中在这里。
+ * StatusProvider 只做 Binder / SharedPreferences 胶水，校验规则集中在这里。
  */
 public final class ReportProtocol {
 

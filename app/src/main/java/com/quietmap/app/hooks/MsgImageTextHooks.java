@@ -45,7 +45,7 @@ final class MsgImageTextHooks {
             HookKit.install(module, f, "La8#run", run,
                     HookKit.skipVoid(module, f, "La8#run"));
         } catch (Throwable t) {
-            HookKit.error(module, f.key + " install aborted", t);
+            HookKit.error(module, f.id + " install aborted", t);
         }
     }
 
@@ -57,14 +57,14 @@ final class MsgImageTextHooks {
                 Class<?> cls = Class.forName(name, false, cl);
                 Method m = HookKit.findMethodQuiet(cls, DOWNLOAD_METHOD);
                 if (m != null) {
-                    HookKit.info(module, f.key
+                    HookKit.info(module, f.id
                             + " image-text downloader located via class-name list: " + name);
                     return m;
                 }
             } catch (Throwable ignored) {
             }
         }
-        HookKit.warn(module, f.key + " class-name list miss, fallback to dexkit anchor");
+        HookKit.warn(module, f.id + " class-name list miss, fallback to dexkit anchor");
 
         // 兜底：DexKit 按方法体特征串定位（类名改了也能找到）。
         try {
@@ -72,16 +72,16 @@ final class MsgImageTextHooks {
                     void.class, new Class<?>[0],
                     Anchors.STR_IMAGE_TEXT_DL, Anchors.STR_IMAGE_TEXT_DL_CLASS);
             if (m != null) {
-                HookKit.info(module, f.key + " image-text downloader located via dexkit anchor: "
+                HookKit.info(module, f.id + " image-text downloader located via dexkit anchor: "
                         + m.getDeclaringClass().getName());
                 return m;
             }
-            HookKit.warn(module, f.key + " dexkit anchor miss");
+            HookKit.warn(module, f.id + " dexkit anchor miss");
         } catch (Throwable t) {
-            HookKit.warn(module, f.key + " dexkit anchor error: " + t.getMessage());
+            HookKit.warn(module, f.id + " dexkit anchor error: " + t.getMessage());
         }
 
-        HookKit.warn(module, f.key + " skip: image-text downloader not found (class-name list "
+        HookKit.warn(module, f.id + " skip: image-text downloader not found (class-name list "
                 + java.util.Arrays.toString(DOWNLOAD_CLASS_NAMES) + " + dexkit anchor)");
         HookState.markNotFound(f, "La8#run 锚定失败");
         return null;

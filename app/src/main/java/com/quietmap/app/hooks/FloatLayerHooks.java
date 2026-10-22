@@ -49,7 +49,7 @@ final class FloatLayerHooks {
             HookKit.install(module, f, "FloatingLayerManager#a", register,
                     HookKit.constValue(module, f, "FloatingLayerManager#a", ""));
         } catch (Throwable t) {
-            HookKit.error(module, f.key + " install aborted", t);
+            HookKit.error(module, f.id + " install aborted", t);
         }
     }
 }

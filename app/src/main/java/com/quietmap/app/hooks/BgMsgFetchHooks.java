@@ -72,7 +72,7 @@ final class BgMsgFetchHooks {
             installBackgroundFetch(module, f, cl);
             installFetchFromMainMap(module, f, cl, manager);
         } catch (Throwable t) {
-            HookKit.error(module, f.key + " install aborted", t);
+            HookKit.error(module, f.id + " install aborted", t);
         }
     }
 

@@ -64,7 +64,7 @@ final class HomeBannerHooks {
                         HookKit.skipVoid(module, f, "BannerManager#b"));
             }
         } catch (Throwable t) {
-            HookKit.error(module, f.key + " install aborted", t);
+            HookKit.error(module, f.id + " install aborted", t);
         }
     }
 }

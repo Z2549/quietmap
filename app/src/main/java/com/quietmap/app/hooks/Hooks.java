@@ -89,7 +89,7 @@ public final class Hooks {
         Report.start();
         for (Feature f : Feature.values()) {
             if (!config.enabled(f)) {
-                module.log(Log.INFO, TAG, f.key + " disabled");
+                module.log(Log.INFO, TAG, f.id + " disabled");
                 continue;
             }
             installOne(module, cl, f);
@@ -100,13 +100,13 @@ public final class Hooks {
         try {
             Installer installer = INSTALLERS.get(f);
             if (installer == null) {
-                module.log(Log.ERROR, TAG, f.key + " installer missing");
+                module.log(Log.ERROR, TAG, f.id + " installer missing");
                 HookState.markNotFound(f, "未注册安装器");
                 return;
             }
             installer.install(module, cl);
         } catch (Throwable t) {
-            module.log(Log.ERROR, TAG, f.key + " install threw", t);
+            module.log(Log.ERROR, TAG, f.id + " install threw", t);
             HookState.markNotFound(f, "安装异常");
         }
     }

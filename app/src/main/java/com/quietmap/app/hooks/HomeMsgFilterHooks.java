@@ -93,7 +93,7 @@ final class HomeMsgFilterHooks {
             installDeliveryDisplay(module, f, cl);
             installBadge(module, f, cl);
         } catch (Throwable t) {
-            HookKit.error(module, f.key + " install aborted", t);
+            HookKit.error(module, f.id + " install aborted", t);
         }
     }
 
@@ -200,7 +200,7 @@ final class HomeMsgFilterHooks {
                 try {
                     Object raw = chain.getArg(1);
                     if (raw instanceof Number && ((Number) raw).intValue() > 0) {
-                        HookKit.hit(module, f, f.key + " hit " + label
+                        HookKit.hit(module, f, f.id + " hit " + label
                                 + " count=" + ((Number) raw).intValue());
                         return null;
                     }
@@ -211,7 +211,7 @@ final class HomeMsgFilterHooks {
                         // 原方法已执行过一次，不能再次 proceed。
                         throw t;
                     }
-                    HookKit.error(module, f.key + " intercept error " + label, t);
+                    HookKit.error(module, f.id + " intercept error " + label, t);
                     return chain.proceed();
                 }
             }

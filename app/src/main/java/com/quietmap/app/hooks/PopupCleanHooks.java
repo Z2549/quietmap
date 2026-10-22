@@ -67,7 +67,7 @@ final class PopupCleanHooks {
                                 "Lcx1#IDialogConflictMgr.addToQueue", false));
             }
         } catch (Throwable t) {
-            HookKit.error(module, f.key + " install aborted", t);
+            HookKit.error(module, f.id + " install aborted", t);
         }
     }
 }

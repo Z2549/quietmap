@@ -50,7 +50,7 @@ final class H5AdLogHooks {
                         HookKit.skipVoid(module, f, "AlimamaRequestHolder#sendH5Log(3p)"));
             }
         } catch (Throwable t) {
-            HookKit.error(module, f.key + " install aborted", t);
+            HookKit.error(module, f.id + " install aborted", t);
         }
     }
 }

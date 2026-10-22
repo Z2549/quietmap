@@ -44,7 +44,7 @@ final class SplashGateHooks {
                     tryShowSplashView,
                     HookKit.skipVoid(module, f, "SplashScreenServiceImpl#tryShowSplashView"));
         } catch (Throwable t) {
-            HookKit.error(module, f.key + " install aborted", t);
+            HookKit.error(module, f.id + " install aborted", t);
         }
     }
 }

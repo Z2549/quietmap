@@ -7,7 +7,7 @@ import android.util.Log;
 
 import com.quietmap.app.Feature;
 import com.quietmap.app.HookState;
-import com.quietmap.app.ReportProvider;
+import com.quietmap.app.StatusProvider;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -83,7 +83,7 @@ final class Report {
         extras.putStringArray("values", values.toArray(new String[0]));
         try {
             Bundle result = context.getContentResolver().call(
-                    Uri.parse("content://" + ReportProvider.AUTHORITY), "report", null, extras);
+                    Uri.parse("content://" + StatusProvider.AUTHORITY), "report", null, extras);
             if (result != null) {
                 sLast = batch;
                 return;
@@ -109,15 +109,15 @@ final class Report {
         for (Feature f : HookState.touched()) {
             List<String> labels = HookState.labels(f);
             if (!labels.isEmpty()) {
-                out.put(ReportProvider.PREFIX_REG + f.key, truncate(join(labels)));
+                out.put(StatusProvider.PREFIX_REG + f.key, truncate(join(labels)));
             }
             long hits = HookState.hitCount(f);
             if (hits > 0) {
-                out.put(ReportProvider.PREFIX_HIT + f.key, String.valueOf(hits));
+                out.put(StatusProvider.PREFIX_HIT + f.key, String.valueOf(hits));
             }
             String skip = HookState.skipReason(f);
             if (skip != null) {
-                out.put(ReportProvider.PREFIX_SKIP + f.key, truncate(skip));
+                out.put(StatusProvider.PREFIX_SKIP + f.key, truncate(skip));
             }
         }
         return out;

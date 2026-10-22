@@ -30,7 +30,7 @@ final class BgAfcTaokeHooks {
             HookKit.install(module, f, "AfcTkManager#registerTkFlag", m,
                     HookKit.skipVoid(module, f, "AfcTkManager#registerTkFlag"));
         } catch (Throwable t) {
-            HookKit.error(module, f.key + " install aborted", t);
+            HookKit.error(module, f.id + " install aborted", t);
         }
     }
 }

@@ -43,7 +43,7 @@ final class SplashShakeHooks {
             HookKit.install(module, f, "SplashButtonInfo#isSpeedStrict", speedStrict,
                     HookKit.constBool(module, f, "SplashButtonInfo#isSpeedStrict", false));
         } catch (Throwable t) {
-            HookKit.error(module, f.key + " install aborted", t);
+            HookKit.error(module, f.id + " install aborted", t);
         }
     }
 }

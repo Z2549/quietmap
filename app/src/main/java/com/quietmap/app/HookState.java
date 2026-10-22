@@ -12,7 +12,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * 目标进程内的诊断状态：每个钩子的注册标签、命中次数、跳过原因。
  *
  * 真正带细节的日志由 HookKit 打进 logcat（tag QuietMap）；这里只存计数快照，
- * 由 hooks 包的 Report 定期回传给模块 App 的 ReportProvider，供设置页诊断卡展示。
+ * 由 hooks 包的 Report 定期回传给模块 App 的 StatusProvider，供设置页诊断卡展示。
  *
  * 线程安全：命中可能来自任意线程（含 binder 线程），全部用并发容器。
  */

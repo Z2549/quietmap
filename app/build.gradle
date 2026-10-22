@@ -17,9 +17,9 @@ def hasKeystore = keystorePropsFile.exists() && keystoreProps.getProperty("store
 
 android {
     namespace 'com.quietmap.app'
-    // 机器上装的是 platforms;android-35/36；android-37.0 这种目录名 AGP 解析不了，
-    // 只能用 36（本模块不碰 37 特有 API）。
-    compileSdk 36
+    // 统一基线 compileSdk 37（Android 17）。libxposed api/service 102.0.0 的 AAR
+    // 元数据要求 minCompileSdk 37，因此不再关闭 check*AarMetadata 校验。
+    compileSdk 37
 
     defaultConfig {
         // 仓库新规：新模块包名必须是自有域名或 io.github.[用户名].[模块名]。
@@ -27,8 +27,8 @@ android {
         applicationId "io.github.yigenhuobah.quietmap"
         minSdk 29
         targetSdk 36
-        versionCode 6
-        versionName "0.5.1"
+        versionCode 7
+        versionName "0.6.0"
     }
 
     signingConfigs {
@@ -86,21 +86,6 @@ android {
             // System.load（宿主进程 java.library.path 里没有模块 so 目录）。
             useLegacyPackaging = true
         }
-    }
-}
-
-// AAR 元数据检查豁免（仅影响构建期校验，不改任何运行时行为）：
-// 1) io.github.libxposed:service:102.0.0 的 AAR 元数据声明 minCompileSdk 37，
-//    本机平台目录是 android-37.0（AGP 解析不了），只能 compileSdk 36。
-//    该库只做 binder 转发，不使用任何 37 新 API。
-// 2) io.github.libxposed:api:102.0.0 的 api-102.0.0.aar 同样带 minCompileSdk=37
-//    的 aar-metadata，理由同上；annotation 是普通 jar，不触发该检查。
-//    因此受影响的坐标是 service 与 api 两项。
-// 3) 行为仍是全局禁用 check*AarMetadata（AGP 的豁免是按任务而非按坐标）。
-// 若未来改用 compileSdk 37，把这段删掉即可。
-tasks.configureEach { task ->
-    if (task.name.startsWith("check") && task.name.endsWith("AarMetadata")) {
-        task.enabled = false
     }
 }
 

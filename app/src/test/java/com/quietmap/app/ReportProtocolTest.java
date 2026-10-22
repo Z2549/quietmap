@@ -7,7 +7,7 @@ import static org.junit.Assert.assertTrue;
 import org.junit.Test;
 
 /**
- * ReportProvider 的纯 Java 协议规则：键白名单、值长度、hit 最大值合并。
+ * StatusProvider 的纯 Java 协议规则：键白名单、值长度、hit 最大值合并。
  * 这些规则决定跨进程写入 prefs 的边界，改动必须同步更新本测试。
  */
 public class ReportProtocolTest {

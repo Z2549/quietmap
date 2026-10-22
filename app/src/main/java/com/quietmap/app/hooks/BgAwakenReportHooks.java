@@ -46,7 +46,7 @@ final class BgAwakenReportHooks {
                         HookKit.skipVoid(module, f, "sendAwakenPage(3)"));
             }
         } catch (Throwable t) {
-            HookKit.error(module, f.key + " install aborted", t);
+            HookKit.error(module, f.id + " install aborted", t);
         }
     }
 }
