@@ -3,8 +3,8 @@ plugins {
 }
 
 // 签名配置从 keystore.properties 读（该文件在 .gitignore 里，不入仓库）。
-// 没提供时回退 Android 默认 debug 签名：仓库开箱即可构建，任何人都能装上，
-// 只是不能算"正式签名"版本。等自己 keystore 稳定了再补这个文件。
+// release 必须使用正式签名：缺少该文件时不做 debug 回退，由文件末尾的
+// taskGraph 门禁在 release 任务执行前直接失败。
 
 def keystorePropsFile = rootProject.file("keystore.properties")
 def keystoreProps = new Properties()
@@ -38,13 +38,6 @@ android {
                 storePassword keystoreProps.getProperty("storePassword")
                 keyAlias keystoreProps.getProperty("keyAlias")
                 keyPassword keystoreProps.getProperty("keyPassword")
-            }
-        } else {
-            // 没有自备 keystore 时，release 显式借用 debug 证书。
-            // 必须显式指定：不指定的话 AGP 会产出一个没签名的 APK，
-            // 安装时报 INSTALL_PARSE_FAILED_NO_CERTIFICATES。
-            release {
-                initWith debug
             }
         }
     }
