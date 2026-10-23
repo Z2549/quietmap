@@ -179,14 +179,15 @@ bash tools/check-mounts.sh "E:\path\to\amap.apk"
 
 ## 从源码构建
 
-要求：JDK 17、Android SDK Platform 37、Gradle 8.13。
+要求：JDK 21（构建用）、Android SDK Platform 37、Gradle 8.13。
+Java 的 source/target 仍是 17（见 `app/build.gradle` 的 `compileOptions`）。
 
 ```bash
-JAVA_HOME="F:/Program Files/Java/jdk-17" ./gradlew test assembleDebug assembleRelease
+JAVA_HOME="F:/Program Files/Java/jdk-21" ./gradlew test assembleDebug assembleRelease
 bash tools/check-mounts.sh
 ```
 
-工具链：AGP 8.13.2 + Gradle wrapper 8.13 + JDK 17，compileSdk 37 / minSdk 29 / targetSdk 36。
+工具链：AGP 8.13.2 + Gradle wrapper 8.13 + JDK 21（构建），Java source/target 17，compileSdk 37 / minSdk 29 / targetSdk 36。
 release 产物：`app/build/outputs/apk/release/quietmap-0.6.0.apk`（R8 minify + shrinkResources）。
 签名读取仓库根目录 `keystore.properties`；缺少该文件时 release 构建直接失败，不会产出用 debug 证书签名的包。
 
