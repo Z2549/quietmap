@@ -38,6 +38,14 @@ public class DiagnosticsFragment extends PreferenceFragmentCompat {
         rebuild();
     }
 
+    /** 底栏切到诊断 tab 或框架绑定后由 MainActivity 调用；view 未就绪时安全返回。 */
+    void refresh() {
+        if (getContext() == null) {
+            return;
+        }
+        rebuild();
+    }
+
     private void rebuild() {
         PreferenceScreen screen = getPreferenceScreen();
         if (screen == null) {

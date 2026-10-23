@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    主设置页：状态卡 -> 异常横幅 -> AD/UI/PV 分组 -> 诊断/关于入口 -> 页脚。
+    设置 tab：状态卡 -> 异常横幅 -> AD/UI/PV 分组 -> 页脚。
+    诊断与关于是底栏顶层 tab，不再作为本页入口。
     每个功能行的 android:key 必须与 Feature.key 完全一致；
     标题/摘要由 SettingsFragment 从 Feature 注入，这里只声明 key 与分组图标。
 -->
@@ -105,16 +106,6 @@
             android:key="track_suppress" />
 
     </PreferenceCategory>
-
-    <Preference
-        android:key="page_diagnostics"
-        android:summary="@string/page_diagnostics_summary"
-        android:title="@string/page_diagnostics" />
-
-    <Preference
-        android:key="page_about"
-        android:summary="@string/page_about_summary"
-        android:title="@string/page_about" />
 
     <Preference
         android:key="footer"
