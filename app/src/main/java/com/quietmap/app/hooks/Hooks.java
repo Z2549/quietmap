@@ -66,6 +66,14 @@ public final class Hooks {
     }
 
     /**
+     * 安装条件：未 blocked 且用户配置开启。blocked 功能即使配置为开启也不安装，
+     * 保留编号与设置行位，但绝不在目标进程落钩。
+     */
+    static boolean shouldInstall(Feature f, boolean enabled) {
+        return !f.blocked() && enabled;
+    }
+
+    /**
      * @param mainProcess 当前是否为主进程（进程名 == 包名）。非主进程（:locationservice、
      *                    :widgetProvider）关闭 DexKit：那里只需要类名/方法名兜底（Wave 1 已把
      *                    类名命中放在 DexKit 之前），不值得付出 native 全 dex 扫描成本。
@@ -88,8 +96,12 @@ public final class Hooks {
         }
         Report.start();
         for (Feature f : Feature.values()) {
-            if (!config.enabled(f)) {
-                module.log(Log.INFO, TAG, f.id + " disabled");
+            if (!shouldInstall(f, config.enabled(f))) {
+                if (f.blocked()) {
+                    module.log(Log.INFO, TAG, f.id + " blocked: " + f.blockedReason);
+                } else {
+                    module.log(Log.INFO, TAG, f.id + " disabled");
+                }
                 continue;
             }
             installOne(module, cl, f);

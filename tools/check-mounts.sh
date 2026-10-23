@@ -1,18 +1,27 @@
 #!/usr/bin/env bash
 # 挂载点体检：高德升级后跑这个，30 秒内知道十九个钩子的挂载点还活着几个。
 #
-# 用法（Git Bash）：
-#   bash tools/check-mounts.sh [apk路径] [缓存输出目录]
+# 用法（Git Bash / Linux / macOS）：
+#   bash tools/check-mounts.sh [APK路径] [--apk APK] [--dexsql PATH] [--aapt2 PATH]
+#                               [--cache-dir DIR]
 #
 # 例：
 #   bash tools/check-mounts.sh
-#   bash tools/check-mounts.sh "E:\download\base(5).apk"
+#   bash tools/check-mounts.sh ~/Downloads/base.apk
+#   TARGET_APK=~/Downloads/base.apk bash tools/check-mounts.sh
 #
-# 依赖：E:\tools\dexsql\dexsql.exe（首次会为这个 apk 建缓存，约 40 秒）
+# 参数优先级: CLI > 环境变量 > 常见安装路径。
+# 环境变量:
+#   TARGET_APK, DEXSQL, AAPT2（旧变量 APK 仍作为 TARGET_APK 的别名）
+#
+# 依赖:
+#   - dexsql（必需）：--dexsql / DEXSQL / PATH / tools/dexsql/ 等常见位置
+#   - aapt2 或 aapt（可选）：--aapt2 / AAPT2 / PATH / Android SDK build-tools；
+#     缺失时只跳过 versionName 校验
+#   - 目标 APK（必需）：--apk / TARGET_APK / 当前目录或 ~/Downloads 下的 base*.apk
+#
 # 缓存按 APK 内容区分：默认写仓库内 tools/.dexsql-cache/<sha256前16位>/，
 # 换 APK 自动换目录，不会把旧包的结果当成新包的（也不往 APK 目录写东西）。
-# 版本校验：用 D:/Android/Sdk/build-tools 下最新版本的 aapt 读 versionName，
-# 与实测版本不符只打 WARN、不中断。
 #
 # 判定规则：
 #   OK   = 类和方法都在，且方法完整签名没变，hook 大概还能挂上
@@ -27,28 +36,226 @@
 
 set -u
 
-APK="${1:-E:/download/base(4).apk}"
-OUT="${2:-}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+CACHE_ROOT="$REPO_ROOT/tools/.dexsql-cache"
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-DEXSQL="E:/tools/dexsql/dexsql.exe"
-if [ ! -x "$DEXSQL" ]; then
-  DEXSQL="E:\\tools\\dexsql\\dexsql.exe"
+TARGET_APK="${TARGET_APK:-${APK:-}}"
+DEXSQL="${DEXSQL:-}"
+AAPT2="${AAPT2:-}"
+CACHE_DIR=""
+POSITIONAL=""
+
+usage() {
+  cat <<'EOF'
+Usage:
+  tools/check-mounts.sh [APK_PATH] [--apk APK] [--dexsql PATH] [--aapt2 PATH]
+                        [--cache-dir DIR]
+
+Arguments:
+  APK_PATH / --apk   目标 APK（高德）；也可用 TARGET_APK 环境变量
+  --dexsql PATH      dexsql 可执行文件；也可用 DEXSQL
+  --aapt2 PATH       aapt2/aapt 可执行文件；也可用 AAPT2（缺失时跳过 versionName 校验）
+  --cache-dir DIR    DexSQL 缓存目录；默认 <repo>/tools/.dexsql-cache/<sha256前16位>/
+  -h, --help         显示本帮助
+
+Resolution order: CLI > environment > common install paths.
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --apk)
+      [ $# -ge 2 ] || { echo "ERROR: --apk needs a value" >&2; exit 2; }
+      TARGET_APK="$2"; shift 2 ;;
+    --apk=*)
+      TARGET_APK="${1#*=}"; shift ;;
+    --dexsql)
+      [ $# -ge 2 ] || { echo "ERROR: --dexsql needs a value" >&2; exit 2; }
+      DEXSQL="$2"; shift 2 ;;
+    --dexsql=*)
+      DEXSQL="${1#*=}"; shift ;;
+    --aapt2)
+      [ $# -ge 2 ] || { echo "ERROR: --aapt2 needs a value" >&2; exit 2; }
+      AAPT2="$2"; shift 2 ;;
+    --aapt2=*)
+      AAPT2="${1#*=}"; shift ;;
+    --cache-dir)
+      [ $# -ge 2 ] || { echo "ERROR: --cache-dir needs a value" >&2; exit 2; }
+      CACHE_DIR="$2"; shift 2 ;;
+    --cache-dir=*)
+      CACHE_DIR="${1#*=}"; shift ;;
+    -h|--help)
+      usage; exit 0 ;;
+    -*)
+      echo "ERROR: unknown option $1" >&2; usage >&2; exit 2 ;;
+    *)
+      if [ -n "$POSITIONAL" ]; then
+        echo "ERROR: unexpected argument $1" >&2; usage >&2; exit 2
+      fi
+      POSITIONAL="$1"; shift ;;
+  esac
+done
+
+# ---- 工具定位辅助 ---------------------------------------------------------
+is_executable_file() {
+  local path="$1"
+  [ -n "$path" ] && [ -f "$path" ] || return 1
+  case "$path" in
+    *.exe|*.EXE) return 0 ;;
+  esac
+  [ -x "$path" ]
+}
+
+first_executable() {
+  local candidate
+  for candidate in "$@"; do
+    if is_executable_file "$candidate"; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# SDK 根目录：环境变量、local.properties、常见安装位置（不写死机器路径）。
+sdk_roots() {
+  local value line
+  for value in "${ANDROID_HOME:-}" "${ANDROID_SDK_ROOT:-}"; do
+    [ -n "$value" ] && printf '%s\n' "$value"
+  done
+  if [ -f "$REPO_ROOT/local.properties" ]; then
+    line="$(grep -E '^[[:space:]]*sdk\.dir[[:space:]]*=' \
+      "$REPO_ROOT/local.properties" | tail -n 1 || true)"
+    value="${line#*=}"
+    value="$(printf '%s' "$value" \
+      | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \
+            -e 's/\\\\/\\/g' -e 's/\\:/:/g')"
+    [ -n "$value" ] && printf '%s\n' "$value"
+  fi
+  printf '%s\n' \
+    "$HOME/Android/Sdk" \
+    "$HOME/Library/Android/sdk" \
+    "$HOME/AppData/Local/Android/Sdk" \
+    "/usr/lib/android-sdk" \
+    "/opt/android-sdk"
+}
+
+# 在 SDK build-tools 中找最新的 aapt2/aapt（目录名倒序，build-tools 主版本为两位数）。
+find_aapt() {
+  local sdk_root bt name candidate
+  while IFS= read -r sdk_root; do
+    [ -n "$sdk_root" ] || continue
+    [ -d "$sdk_root/build-tools" ] || continue
+    while IFS= read -r bt; do
+      [ -n "$bt" ] || continue
+      for name in aapt2.exe aapt2 aapt.exe aapt; do
+        candidate="$sdk_root/build-tools/$bt/$name"
+        if is_executable_file "$candidate"; then
+          printf '%s\n' "$candidate"
+          return 0
+        fi
+      done
+    done < <(ls -1 "$sdk_root/build-tools" 2>/dev/null | sort -r)
+  done < <(sdk_roots)
+  return 1
+}
+
+# ---- APK 定位 -------------------------------------------------------------
+# 位置参数也是 CLI，优先级高于环境变量。
+if [ -n "$POSITIONAL" ]; then
+  TARGET_APK="$POSITIONAL"
 fi
-[ -f "$DEXSQL" ] || { echo "找不到 dexsql: $DEXSQL" >&2; exit 2; }
-[ -f "$APK" ] || { echo "找不到 APK: $APK" >&2; exit 2; }
+if [ -z "$TARGET_APK" ]; then
+  for candidate in \
+    "$PWD"/base*.apk \
+    "$HOME/Downloads"/base*.apk \
+    "$HOME/Downloads"/*amap*.apk \
+    "$HOME/Desktop"/base*.apk; do
+    if [ -f "$candidate" ]; then
+      TARGET_APK="$candidate"
+      echo "APK (auto-detected): $TARGET_APK" >&2
+      break
+    fi
+  done
+fi
+
+# ---- dexsql 定位 ----------------------------------------------------------
+if [ -z "$DEXSQL" ]; then
+  if command -v dexsql >/dev/null 2>&1; then
+    DEXSQL="$(command -v dexsql)"
+  elif command -v dexsql.exe >/dev/null 2>&1; then
+    DEXSQL="$(command -v dexsql.exe)"
+  else
+    DEXSQL="$(first_executable \
+      "$REPO_ROOT/tools/dexsql/dexsql" \
+      "$REPO_ROOT/tools/dexsql/dexsql.exe" \
+      "$REPO_ROOT/tools/dexsql.exe" \
+      "$HOME/.local/bin/dexsql" \
+      "$HOME/bin/dexsql" \
+      "/usr/local/bin/dexsql" \
+      "$HOME/tools/dexsql/dexsql" \
+      "$HOME/tools/dexsql/dexsql.exe" || true)"
+  fi
+fi
+
+# ---- aapt2/aapt 定位 ------------------------------------------------------
+if [ -z "$AAPT2" ]; then
+  if command -v aapt2 >/dev/null 2>&1; then
+    AAPT2="$(command -v aapt2)"
+  elif command -v aapt >/dev/null 2>&1; then
+    AAPT2="$(command -v aapt)"
+  else
+    AAPT2="$(find_aapt || true)"
+  fi
+fi
+
+# ---- 输入校验 -------------------------------------------------------------
+if [ -z "$TARGET_APK" ] || [ ! -f "$TARGET_APK" ]; then
+  echo "ERROR: APK not found: ${TARGET_APK:-<unset>}" >&2
+  echo "  Fix: pass --apk /path/to/base.apk, or export TARGET_APK=/path/to/base.apk," >&2
+  echo "       or place base*.apk in the current directory / ~/Downloads." >&2
+  exit 2
+fi
+if [ -z "$DEXSQL" ] \
+  || { ! is_executable_file "$DEXSQL" && ! command -v "$DEXSQL" >/dev/null 2>&1; }; then
+  echo "ERROR: dexsql not found: ${DEXSQL:-<unset>}" >&2
+  echo "  Fix: install dexsql and put it on PATH, or pass --dexsql /path/to/dexsql," >&2
+  echo "       or export DEXSQL=/path/to/dexsql." >&2
+  exit 2
+fi
+if [ -n "$AAPT2" ] && ! is_executable_file "$AAPT2" \
+  && ! command -v "$AAPT2" >/dev/null 2>&1; then
+  echo "WARN: aapt2/aapt is not executable: $AAPT2; skipping versionName assertion" >&2
+  echo "      Fix: pass --aapt2 /path/to/aapt2, export AAPT2=..., or set ANDROID_HOME/ANDROID_SDK_ROOT." >&2
+  AAPT2=""
+fi
+
+# ---- 缓存定位 -------------------------------------------------------------
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" 2>/dev/null | cut -c1-16
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" 2>/dev/null | cut -c1-16
+  else
+    return 1
+  fi
+}
+
+APK_SHA="$(sha256_of "$TARGET_APK")"
+[ -n "$APK_SHA" ] \
+  || { echo "ERROR: cannot compute APK sha256 (need sha256sum or shasum)" >&2; exit 2; }
 
 # 缓存目录按 APK 内容哈希区分：换包必然换目录，不会再拿旧包的缓存查询新包。
-APK_SHA=$(sha256sum "$APK" 2>/dev/null | cut -c1-16)
-[ -n "$APK_SHA" ] || { echo "无法计算 APK sha256（需要 sha256sum）" >&2; exit 2; }
+[ -z "$CACHE_DIR" ] && CACHE_DIR="$CACHE_ROOT/$APK_SHA"
+mkdir -p "$CACHE_DIR" \
+  || { echo "ERROR: cannot create cache dir: $CACHE_DIR" >&2; exit 2; }
+CACHE="$CACHE_DIR/cache.dxc2"
 
-[ -z "$OUT" ] && OUT="$SCRIPT_DIR/.dexsql-cache/$APK_SHA"
-mkdir -p "$OUT"
-CACHE="$OUT/cache.dxc2"
 
 if [ ! -f "$CACHE" ]; then
   echo "== 首次为该 apk 建 DexSQL 缓存（约 40 秒）..."
-  "$DEXSQL" prepare-cache --input "$APK" --output "$OUT" >/dev/null 2>&1
+  "$DEXSQL" prepare-cache --input "$TARGET_APK" --output "$CACHE_DIR" >/dev/null 2>&1
   [ -f "$CACHE" ] || { echo "建缓存失败: $CACHE" >&2; exit 1; }
 fi
 
@@ -73,7 +280,7 @@ q() {
     if [ "$retried" -eq 0 ] && [ -f "$CACHE" ]; then
       echo "dexsql 查询失败（exit $rc），缓存疑似失效，重建后重试一次..." >&2
       rm -f "$CACHE"
-      "$DEXSQL" prepare-cache --input "$APK" --output "$OUT" >/dev/null 2>&1
+      "$DEXSQL" prepare-cache --input "$TARGET_APK" --output "$CACHE_DIR" >/dev/null 2>&1
       retried=1
       continue
     fi
@@ -166,24 +373,15 @@ Lcom/autonavi/minimap/bundle/msgbox/push/BackgroundMsgManager;->a(Lcom/autonavi/
 Lcom/autonavi/minimap/bundle/msgbox/util/MessageBoxManager;->fetchMessageFromMainMap(IZLcom/autonavi/minimap/bundle/msgbox/api/IMsgboxService$MainMapUIUpdater;)V|bg_msg_fetch 主图消息拉取包装'
 
 echo
-echo "APK: $APK"
+echo "APK: $TARGET_APK"
 echo "SHA256(前16位): $APK_SHA"
 echo "缓存: $CACHE"
 # ── 版本校验：与清单实测版本比对，只警告不中断 ────────────────────
 EXPECTED_VERSION="17.01.0.2012"
-AAPT=""
-BUILD_TOOLS="D:/Android/Sdk/build-tools"
-if [ -d "$BUILD_TOOLS" ]; then
-  newest_bt=$(ls -1 "$BUILD_TOOLS" 2>/dev/null | sort -V | tail -1)
-  [ -n "$newest_bt" ] && [ -f "$BUILD_TOOLS/$newest_bt/aapt.exe" ] && AAPT="$BUILD_TOOLS/$newest_bt/aapt.exe"
-fi
-if [ -z "$AAPT" ] && command -v aapt >/dev/null 2>&1; then
-  AAPT=$(command -v aapt)
-fi
 VERSION_NAME=""
-if [ -n "$AAPT" ]; then
-  VERSION_NAME=$("$AAPT" dump badging "$APK" 2>/dev/null | sed -n "s/.*versionName='\([^']*\)'.*/\1/p" | head -1)
-  echo "versionName: ${VERSION_NAME:-未知}  (aapt: $AAPT)"
+if [ -n "$AAPT2" ]; then
+  VERSION_NAME=$("$AAPT2" dump badging "$TARGET_APK" 2>/dev/null | sed -n "s/.*versionName='\([^']*\)'.*/\1/p" | head -1)
+  echo "versionName: ${VERSION_NAME:-未知}  (aapt: $AAPT2)"
   if [ "$VERSION_NAME" != "$EXPECTED_VERSION" ]; then
     echo
     echo "*********************** WARN ***********************"
@@ -193,7 +391,8 @@ if [ -n "$AAPT" ]; then
     echo
   fi
 else
-  echo "versionName: 跳过校验（找不到 aapt）"
+  echo "versionName: 跳过校验（找不到 aapt2/aapt）"
+  echo "              Fix: pass --aapt2 /path/to/aapt2, export AAPT2=..., or set ANDROID_HOME/ANDROID_SDK_ROOT."
 fi
 echo
 printf '%-8s %-78s %s\n' "状态" "挂载点（完整签名）" "功能"

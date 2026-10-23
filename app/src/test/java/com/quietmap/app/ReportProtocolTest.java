@@ -2,6 +2,7 @@ package com.quietmap.app;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
@@ -61,5 +62,48 @@ public class ReportProtocolTest {
         assertTrue(ReportProtocol.isValidValue("a".repeat(256)));
         assertFalse(ReportProtocol.isValidValue(null));
         assertFalse(ReportProtocol.isValidValue("a".repeat(257)));
+    }
+
+    @Test
+    public void validKeyRejectsPrefixOnlyAndBoundaryLengths() {
+        assertFalse(ReportProtocol.validKey(ReportProtocol.PREFIX_REG));
+        assertFalse(ReportProtocol.validKey(ReportProtocol.PREFIX_HIT));
+        assertFalse(ReportProtocol.validKey(ReportProtocol.PREFIX_SKIP));
+        // 128 字符恰好等于上限但不在白名单；129 与超长输入同样拒绝。
+        assertFalse(ReportProtocol.validKey("reg." + "a".repeat(ReportProtocol.MAX_KEY - 4)));
+        assertFalse(ReportProtocol.validKey("reg." + "a".repeat(ReportProtocol.MAX_KEY)));
+        assertFalse(ReportProtocol.validKey("a".repeat(10_000)));
+    }
+
+    @Test
+    public void parseHitRejectsMalformedValues() {
+        // QuietMap 协议不使用 JSON：畸形文本（非数字/空白/溢出）等价于畸形载荷。
+        assertNull(ReportProtocol.parseHit(null));
+        assertNull(ReportProtocol.parseHit(""));
+        assertNull(ReportProtocol.parseHit("abc"));
+        assertNull(ReportProtocol.parseHit("1.5"));
+        assertNull(ReportProtocol.parseHit(" 1"));
+        assertNull(ReportProtocol.parseHit("1 "));
+        assertNull(ReportProtocol.parseHit("0x10"));
+        assertNull(ReportProtocol.parseHit("9223372036854775808"));
+        assertNull(ReportProtocol.parseHit("a".repeat(ReportProtocol.MAX_VALUE + 1)));
+    }
+
+    @Test
+    public void parseHitAcceptsDecimalCounts() {
+        assertEquals(Long.valueOf(0), ReportProtocol.parseHit("0"));
+        assertEquals(Long.valueOf(42), ReportProtocol.parseHit("42"));
+        assertEquals(Long.valueOf(Long.MAX_VALUE),
+                ReportProtocol.parseHit(String.valueOf(Long.MAX_VALUE)));
+        // 负数交给 mergeHit 按 0 处理，不在这里吞掉。
+        assertEquals(Long.valueOf(-1), ReportProtocol.parseHit("-1"));
+    }
+
+    @Test
+    public void mergeHitAcrossProcessesTakesMaximum() {
+        assertEquals(7L, ReportProtocol.mergeHit(ReportProtocol.mergeHit(3L, 7L), 5L));
+        assertEquals(9L, ReportProtocol.mergeHit(2L, ReportProtocol.mergeHit(9L, 4L)));
+        assertEquals(Long.MAX_VALUE, ReportProtocol.mergeHit(Long.MAX_VALUE, 1L));
+        assertEquals(Long.MAX_VALUE, ReportProtocol.mergeHit(1L, Long.MAX_VALUE));
     }
 }

@@ -47,6 +47,21 @@ public final class ReportProtocol {
     }
 
     /**
+     * 解析 hit 计数文本；非法、空、溢出或带空白一律返回 null，由调用方跳过。
+     * 协议不使用 JSON，这里等价覆盖「畸形文本」输入。
+     */
+    public static Long parseHit(String value) {
+        if (value == null || value.isEmpty() || value.length() > MAX_VALUE) {
+            return null;
+        }
+        try {
+            return Long.parseLong(value);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    /**
      * 命中计数合并：多进程各自回传本进程计数，历史值取最大，避免重复累加，
      * 也避免较大计数被较小值覆盖。负数（异常输入）按 0 处理。
      */

@@ -84,10 +84,8 @@ public final class StatusProvider extends ContentProvider {
                 // 命中计数取历史最大值：高德多进程各自回传，取 max 不会重复累加，
                 // 也不会被另一进程的低计数覆盖回去。
                 long prev = sp.getLong(VALUE_PREFIX + key, 0L);
-                long next;
-                try {
-                    next = Long.parseLong(value);
-                } catch (NumberFormatException e) {
+                Long next = ReportProtocol.parseHit(value);
+                if (next == null) {
                     continue;
                 }
                 long merged = ReportProtocol.mergeHit(prev, next);
