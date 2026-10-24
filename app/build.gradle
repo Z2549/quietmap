@@ -53,7 +53,13 @@ android {
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            signingConfig signingConfigs.release
+            // CI 等无 keystore 环境：signingConfigs.release 不存在，这里条件引用，
+            // 避免配置阶段就报 "Could not get unknown property 'release'"。
+            // 真正的兜底在文件底部的 taskGraph.whenReady：无 keystore 时 release
+            // 任务图仍然硬失败，不会静默产出 debug 签名或未签名包。
+            if (hasKeystore) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 
