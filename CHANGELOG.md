@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.7.0 — 2026-10-25
+
+工程质量版本（versionCode 8）：工程基建、依赖基线与 UI 骨架升级，**无新增净化功能**。
+
+### 新增
+
+- **底部导航 3 tab**：设置 / 诊断 / 关于改为底部导航切换，单页承载。
+- **CI 与工程脚本**：GitHub Actions 全绿流水线；`tools/preflight.sh`（环境/版本/签名预检）、`tools/verify-apk.sh`（Manifest/versionCode/签名/哈希校验）、`tools/release.sh`（一键构建→校验→归档→发版）；新增 preflight/CI/coverage/hook 注册表检查等单测。
+- **发布签名强制**：release 构建要求签名配置，CI 走条件引用支持无 keystore 构建；`gradlew` 执行位与 runner 自带 SDK 的 CI 兼容修复。
+
+### 变更
+
+- 依赖基线升级：appcompat / material 更新，JDK baseline 对齐。
+- 维护文档移出公开仓库。
+
+### 说明
+
+- 原计划的批 6 功能（AD-12 运营活动、UI-05 通知引导、UI-06 消息中心）经真机验证未能达到设计效果（高德 17.01.0.2012 的 AJX 动态化渲染路径与静态分析不符），**已从本版移除**，待重新逆向适配后再发布。
+- 功能清单与 0.6.0 保持一致（19 项），挂载点 53 项。
+
 ## v0.6.0 — 2026-10-22
 
 统一改造试点版本（versionCode 7）。
