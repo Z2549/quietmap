@@ -3,17 +3,60 @@ package com.quietmap.app.hooks;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotSame;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 
+import java.lang.reflect.Method;
 import java.util.List;
 
 /**
  * MsgCenterHooks 的纯 JVM 逻辑：空回调参数、hasNewMessage 的 "0" 参数、
- * 观测日志限流。Hooker 本身需要 XposedModule/Chain，JVM 单测无法构造。
+ * 反射调用形状、观测日志限流。Hooker 本身需要 XposedModule/Chain，
+ * JVM 单测无法构造；回调形状通过真实 callback(Object[]) 接口验证。
  */
 public class MsgCenterHooksTest {
+
+    /** 与高德 JsFunctionCallback 相同的唯一方法签名。 */
+    interface FakeJsCallback {
+        void callback(Object[] args);
+    }
+
+    static final class RecordingCallback implements FakeJsCallback {
+        Object[] received;
+        int calls;
+
+        @Override
+        public void callback(Object[] args) {
+            calls++;
+            received = args;
+        }
+    }
+
+    /** 反射调用必须把 Object[] 作为“单个实参”传进去，而不是展开。 */
+    @Test
+    public void invokeNoNewMessagePassesSingleArrayArgument() throws Exception {
+        Method callback = FakeJsCallback.class
+                .getDeclaredMethod("callback", Object[].class);
+        RecordingCallback target = new RecordingCallback();
+
+        MsgCenterHooks.invokeNoNewMessage(callback, target);
+
+        assertEquals(1, target.calls);
+        assertNotNull("回调必须收到数组实参", target.received);
+        assertEquals(1, target.received.length);
+        assertEquals("0", target.received[0]);
+    }
+
+    /** 回归锁定：直接传 Object[]{"0"} 会因参数类型不匹配抛 IllegalArgumentException。 */
+    @Test(expected = IllegalArgumentException.class)
+    public void unboxedArrayWouldBeRejectedByReflection() throws Exception {
+        Method callback = FakeJsCallback.class
+                .getDeclaredMethod("callback", Object[].class);
+        callback.invoke(new RecordingCallback(),
+                MsgCenterHooks.noNewMessageCallbackArgs());
+    }
 
     @Test
     public void emptyOnlineDataArgsAreEmptyListsFalseAndZero() {

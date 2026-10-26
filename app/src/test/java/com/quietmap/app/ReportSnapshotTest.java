@@ -129,4 +129,25 @@ public class ReportSnapshotTest {
         assertEquals("5", merged.get("hit.a"));
         assertFalse(merged.containsKey("reg.a"));
     }
+
+    @Test
+    public void sessionRoundTripsAndIsOptionalInOldFiles() {
+        Map<String, String> data = Collections.singletonMap("reg.splash_gate", "x");
+        String json = ReportSnapshot.toJson(10L, "session-1", data);
+        ReportSnapshot parsed = ReportSnapshot.parse(json);
+        assertNotNull(parsed);
+        assertEquals("session-1", parsed.session());
+
+        ReportSnapshot legacy = ReportSnapshot.parse(
+                "{\"v\":1,\"updated_at\":10,\"data\":{\"reg.splash_gate\":\"x\"}}");
+        assertNotNull(legacy);
+        assertNull("旧文件没有 session", legacy.session());
+
+        // session 可选，但出现时必须是合理长度的字符串。
+        assertNull(ReportSnapshot.parse(
+                "{\"v\":1,\"updated_at\":10,\"session\":1,\"data\":{}}"));
+        assertNull(ReportSnapshot.parse(
+                "{\"v\":1,\"updated_at\":10,\"session\":\""
+                        + "x".repeat(129) + "\",\"data\":{}}"));
+    }
 }

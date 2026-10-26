@@ -19,8 +19,11 @@ import java.util.TreeMap;
  */
 public final class ReportFileStore {
 
-    /** 超过 10 分钟的文件视为过期，避免展示上次运行残留的数据。 */
-    public static final long MAX_AGE_MS = 10 * 60 * 1000L;
+    /**
+     * 超过 30 分钟的文件视为过期，避免展示上次运行残留的数据。
+     * 目标进程每 5 分钟至少心跳重写一次，正常情况下年龄不会超过 10 分钟。
+     */
+    public static final long MAX_AGE_MS = 30 * 60 * 1000L;
 
     /** 快照正常只有十几 KB；上限防止读到异常大文件。 */
     public static final int MAX_BYTES = 64 * 1024;
@@ -70,6 +73,14 @@ public final class ReportFileStore {
         return probe(file, System.currentTimeMillis(), Long.MAX_VALUE).entry;
     }
 
+    /**
+     * 诊断页兜底用：文件已过期（超过 MAX_AGE_MS）时仍返回最后一份有效快照，
+     * 让页面能显示“最近一次数据 + 时间”，而不是直接空白。
+     */
+    public static Entry readLastKnown(File file) {
+        return readForMerge(file);
+    }
+
     public static Entry freshest(List<File> candidates, long now, long maxAgeMs) {
         Entry best = null;
         if (candidates == null) {
@@ -114,7 +125,8 @@ public final class ReportFileStore {
         if (data.isEmpty()) {
             return new Probe(file, "no valid keys", null);
         }
-        ReportSnapshot clean = new ReportSnapshot(snapshot.updatedAt(), data);
+        ReportSnapshot clean = new ReportSnapshot(
+                snapshot.updatedAt(), snapshot.session(), data);
         return new Probe(file, null, new Entry(file, clean, mtime));
     }
 

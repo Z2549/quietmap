@@ -1,5 +1,6 @@
 package com.quietmap.app;
 
+import android.app.Activity;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
@@ -13,29 +14,48 @@ import androidx.preference.PreferenceFragmentCompat;
 import androidx.preference.PreferenceScreen;
 
 import java.util.Date;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * 诊断页：逐功能显示 registered / hit / skip。
  *
  * 主页面零诊断，所有细节集中在这里。数据由目标进程的 HookState 经
  * hooks/Report 回传到 StatusProvider，再落到 qm_report。
- * 进入页面和 onResume 时刷新，不自动轮询。
+ *
+ * 文件读取（prefs + 3 条兜底路径）全部在后台单线程执行，结果回主线程；
+ * 页面级缓存 3 秒，避免 onCreatePreferences / onResume / tab 切换连续读盘。
  */
 public class DiagnosticsFragment extends PreferenceFragmentCompat {
 
+    /** 页面级短缓存：3 秒内的重复刷新不再读盘。 */
+    private static final long CACHE_TTL_MS = 3_000L;
+
+    private static final ExecutorService IO_EXECUTOR =
+            Executors.newSingleThreadExecutor(r -> {
+                Thread t = new Thread(r, "qm-diagnostics-io");
+                t.setDaemon(true);
+                return t;
+            });
+
+    private static volatile ReportState sCachedState;
+    private static volatile long sCachedAt;
+
     private long mLastRefreshMs;
+    private ReportState mState;
+    private volatile boolean mLoadInFlight;
 
     @Override
     public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
         PreferenceScreen screen = getPreferenceManager().createPreferenceScreen(requireContext());
         setPreferenceScreen(screen);
-        build(screen);
+        rebuild(false);
     }
 
     @Override
     public void onResume() {
         super.onResume();
-        rebuild();
+        rebuild(false);
     }
 
     /** 底栏切到诊断 tab 或框架绑定后由 MainActivity 调用；view 未就绪时安全返回。 */
@@ -43,21 +63,73 @@ public class DiagnosticsFragment extends PreferenceFragmentCompat {
         if (getContext() == null) {
             return;
         }
-        rebuild();
+        rebuild(false);
     }
 
-    private void rebuild() {
+    private void rebuild(boolean force) {
         PreferenceScreen screen = getPreferenceScreen();
         if (screen == null) {
             return;
         }
         screen.removeAll();
-        build(screen);
+        long now = System.currentTimeMillis();
+        ReportState cached = force ? null : cachedState(now);
+        if (cached != null) {
+            render(screen, cached);
+            return;
+        }
+        render(screen, mState != null ? mState : ReportState.none());
+        loadAsync();
     }
 
-    private void build(PreferenceScreen screen) {
+    private static ReportState cachedState(long now) {
+        ReportState state = sCachedState;
+        long at = sCachedAt;
+        if (state == null || at <= 0L || now < at || now - at >= CACHE_TTL_MS) {
+            return null;
+        }
+        return state;
+    }
+
+    /** 后台读 prefs/文件，主线程只做 Preference 更新；Fragment 已 detach 时丢弃。 */
+    private void loadAsync() {
+        if (mLoadInFlight || getContext() == null) {
+            return;
+        }
+        mLoadInFlight = true;
+        final Context app = requireContext().getApplicationContext();
+        final Activity host = requireActivity();
+        IO_EXECUTOR.execute(() -> {
+            ReportState loaded;
+            try {
+                loaded = StatusProvider.readState(app);
+            } catch (Throwable t) {
+                loaded = ReportState.none();
+            }
+            long now = System.currentTimeMillis();
+            sCachedState = loaded;
+            sCachedAt = now;
+            final ReportState result = loaded;
+            if (!isAdded() || getActivity() != host) {
+                mLoadInFlight = false;
+                return;
+            }
+            host.runOnUiThread(() -> {
+                mLoadInFlight = false;
+                if (!isAdded() || getActivity() != host
+                        || getPreferenceScreen() == null) {
+                    return;
+                }
+                PreferenceScreen screen = getPreferenceScreen();
+                screen.removeAll();
+                render(screen, result);
+            });
+        });
+    }
+
+    private void render(PreferenceScreen screen, ReportState state) {
         mLastRefreshMs = System.currentTimeMillis();
-        ReportState state = StatusProvider.readState(requireContext());
+        mState = state;
 
         Preference header = new Preference(requireContext());
         header.setTitle(R.string.diag_title);
@@ -105,7 +177,8 @@ public class DiagnosticsFragment extends PreferenceFragmentCompat {
         refresh.setTitle(R.string.diag_refresh);
         refresh.setSummary(R.string.diag_refresh_summary);
         refresh.setOnPreferenceClickListener(p -> {
-            rebuild();
+            // 手动刷新跳过 3 秒缓存，确保读到最新文件/prefs。
+            rebuild(true);
             return true;
         });
         screen.addPreference(refresh);
@@ -170,7 +243,9 @@ public class DiagnosticsFragment extends PreferenceFragmentCompat {
         StringBuilder sb = new StringBuilder();
         sb.append(getString(R.string.diag_header, refreshTime()));
         sb.append('\n').append(sourceSummary(state));
-        if (state.source() == ReportState.Source.FILE && state.path() != null) {
+        if ((state.source() == ReportState.Source.FILE
+                || state.source() == ReportState.Source.FILE_STALE)
+                && state.path() != null) {
             sb.append('\n').append(getString(R.string.diag_source_path, state.path()));
         }
         sb.append('\n').append(getString(R.string.diag_hint));
@@ -182,6 +257,9 @@ public class DiagnosticsFragment extends PreferenceFragmentCompat {
         switch (state.source()) {
             case FILE:
                 return getString(R.string.diag_source_file, lastUpdated(state.updatedAt()));
+            case FILE_STALE:
+                return getString(R.string.diag_source_file_stale,
+                        lastUpdated(state.updatedAt()));
             case PROVIDER:
                 return getString(R.string.diag_source_provider, lastUpdated(state.updatedAt()));
             case NONE:
@@ -200,12 +278,15 @@ public class DiagnosticsFragment extends PreferenceFragmentCompat {
     }
 
     private void copyDiagnostics() {
-        ReportState state = StatusProvider.readState(requireContext());
+        // 使用当前页面已经渲染的状态，不在主线程重新读文件。
+        ReportState state = mState != null ? mState : ReportState.none();
         StringBuilder sb = new StringBuilder();
         sb.append(getString(R.string.app_name)).append(' ').append(versionName()).append('\n');
         sb.append(getString(R.string.diag_header, refreshTime())).append('\n');
         sb.append(sourceSummary(state)).append('\n');
-        if (state.source() == ReportState.Source.FILE && state.path() != null) {
+        if ((state.source() == ReportState.Source.FILE
+                || state.source() == ReportState.Source.FILE_STALE)
+                && state.path() != null) {
             sb.append(getString(R.string.diag_source_path, state.path())).append('\n');
         }
         for (Feature f : Feature.values()) {

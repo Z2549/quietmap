@@ -1,6 +1,5 @@
 package com.quietmap.app.hooks;
 
-import android.content.pm.ApplicationInfo;
 import android.util.Log;
 
 import com.quietmap.app.Config;
@@ -98,7 +97,7 @@ public final class Hooks {
             module.log(Log.INFO, TAG, "all features disabled, nothing to hook");
             return;
         }
-        Report.start(modulePackage(module));
+        Report.start(mainProcess);
         for (Feature f : Feature.values()) {
             if (!shouldInstall(f, config.enabled(f))) {
                 if (f.blocked()) {
@@ -109,16 +108,6 @@ public final class Hooks {
                 continue;
             }
             installOne(module, cl, f);
-        }
-    }
-
-    /** 模块包名决定文件兜底的 Android/media 子目录；取不到时 Report 用默认常量。 */
-    private static String modulePackage(XposedModule module) {
-        try {
-            ApplicationInfo info = module.getModuleApplicationInfo();
-            return info != null ? info.packageName : null;
-        } catch (Throwable t) {
-            return null;
         }
     }
 

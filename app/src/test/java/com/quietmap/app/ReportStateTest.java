@@ -76,6 +76,47 @@ public class ReportStateTest {
     }
 
     @Test
+    public void pickMergesKeysFromBothSourcesByKey() {
+        Map<String, String> fileData = new TreeMap<>();
+        fileData.put("reg.splash_gate", "file");
+        Map<String, String> providerData = new TreeMap<>();
+        providerData.put("reg.splash_gate", "provider");
+        providerData.put("reg.bg_msg_fetch", "provider-only");
+        ReportState provider = ReportState.fromProvider(providerData, 1_000L);
+
+        ReportState picked = ReportState.pick(entry(2_000L, 2_000L, fileData), provider);
+        assertEquals(ReportState.Source.FILE, picked.source());
+        assertEquals("file", picked.reg("splash_gate"));
+        assertEquals("provider-only", picked.reg("bg_msg_fetch"));
+    }
+
+    @Test
+    public void pickTakesMaxHitAndKeepsNonEmptyValue() {
+        Map<String, String> fileData = new TreeMap<>();
+        fileData.put("hit.splash_gate", "3");
+        fileData.put("skip.splash_gate", "");
+        Map<String, String> providerData = new TreeMap<>();
+        providerData.put("hit.splash_gate", "9");
+        providerData.put("skip.splash_gate", "provider skip");
+        ReportState provider = ReportState.fromProvider(providerData, 1_000L);
+
+        ReportState picked = ReportState.pick(entry(2_000L, 2_000L, fileData), provider);
+        assertEquals(9L, picked.hit("splash_gate"));
+        assertEquals("较新文件为空时保留旧的非空值", "provider skip",
+                picked.skip("splash_gate"));
+    }
+
+    @Test
+    public void staleFileStateKeepsDataAndTimestamp() {
+        ReportState stale = ReportState.fromStaleFile(
+                entry(1_000L, 1_000L, "reg.splash_gate", "last"));
+        assertEquals(ReportState.Source.FILE_STALE, stale.source());
+        assertTrue(stale.hasData());
+        assertEquals("last", stale.reg("splash_gate"));
+        assertEquals(1_000L, stale.updatedAt());
+    }
+
+    @Test
     public void providerValuesAreSanitized() {
         Map<String, String> data = new TreeMap<>();
         data.put("reg.splash_gate", "ok");
@@ -89,8 +130,12 @@ public class ReportStateTest {
 
     private static ReportFileStore.Entry entry(long mtime, long updatedAt,
                                                String key, String value) {
-        ReportSnapshot snapshot = new ReportSnapshot(updatedAt,
-                Collections.singletonMap(key, value));
+        return entry(mtime, updatedAt, Collections.singletonMap(key, value));
+    }
+
+    private static ReportFileStore.Entry entry(long mtime, long updatedAt,
+                                               Map<String, String> data) {
+        ReportSnapshot snapshot = new ReportSnapshot(updatedAt, data);
         return new ReportFileStore.Entry(new File("qm_report.json"), snapshot, mtime);
     }
 }

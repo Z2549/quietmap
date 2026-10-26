@@ -5,6 +5,7 @@ import android.util.Log;
 import com.quietmap.app.Feature;
 import com.quietmap.app.HookState;
 
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
@@ -112,7 +113,7 @@ final class MsgCenterHooks {
                     + " skip: IGetMessageCallback#onDataCallback signature not found");
             return;
         }
-        onDataCallback.setAccessible(true);
+        setAccessibleQuiet(module, f, onDataCallback);
         HookKit.install(module, f, "MessageBoxServiceImpl#getOnlineData", getOnlineData,
                 emptyDataCallback(module, f, onDataCallback));
     }
@@ -156,9 +157,22 @@ final class MsgCenterHooks {
                     + " skip: JsFunctionCallback#callback(Object[]) signature not found");
             return;
         }
-        callback.setAccessible(true);
+        setAccessibleQuiet(module, f, callback);
         HookKit.install(module, f, "ModuleMessageBox#hasNewMessage", hasNewMessage,
                 noNewMessage(module, f, callback));
+    }
+
+    /**
+     * setAccessible 在个别 ROM 上会抛 SecurityException；这里只记日志，
+     * 方法本身是 public 时仍然可以 invoke，真失败会在 intercept 内 fail-open。
+     */
+    private static void setAccessibleQuiet(XposedModule module, Feature f, Method method) {
+        try {
+            method.setAccessible(true);
+        } catch (Throwable t) {
+            HookKit.warn(module, f.id + " setAccessible failed: "
+                    + method.getDeclaringClass().getName() + "#" + method.getName());
+        }
     }
 
     /**
@@ -243,6 +257,10 @@ final class MsgCenterHooks {
     /**
      * hasNewMessage Hooker：不执行原方法（原方法会调 getMessages 并异步回调 "1"/"0"），
      * 直接回调 JS "0"。void 方法返回 null。callback 为 null 时只抑制，不回调。
+     *
+     * 回调自身抛异常（InvocationTargetException）时不再 proceed：回调可能已经
+     * 执行了一半，proceed 会让原方法再回调一次，JS 侧会收到两次结果。
+     * 只有反射调用失败（参数形状/访问权限）才 fail-open。
      */
     private static XposedInterface.Hooker noNewMessage(final XposedModule module,
                                                        final Feature f,
@@ -256,11 +274,16 @@ final class MsgCenterHooks {
                 try {
                     Object jsCallback = chain.getArg(0);
                     if (jsCallback != null) {
-                        callback.invoke(jsCallback, noNewMessageCallbackArgs());
+                        invokeNoNewMessage(callback, jsCallback);
                     }
                     hitQuiet(module, f, logLine);
                     logThrottled(module, "hasNewMessage:false",
                             "msg center hasNewMessage=false");
+                    return null;
+                } catch (InvocationTargetException t) {
+                    Throwable cause = t.getCause() != null ? t.getCause() : t;
+                    HookKit.error(module, f.id + " callback threw " + detail, cause);
+                    // 回调已进入 JS 侧，不能再执行原方法造成双重回调。
                     return null;
                 } catch (Throwable t) {
                     HookKit.error(module, f.id + " intercept error " + detail, t);
@@ -268,6 +291,19 @@ final class MsgCenterHooks {
                 }
             }
         };
+    }
+
+    /**
+     * 反射调用 JsFunctionCallback#callback(Object[])，传入单个 Object[] 实参。
+     *
+     * 关键：参数本身是数组，Method#invoke 的可变参数必须再包一层
+     * `new Object[]{ noNewMessageCallbackArgs() }`；直接传 `Object[]{"0"}`
+     * 会被当成一个 String 实参，必然抛 IllegalArgumentException。
+     * 抽成包内静态方法，单测可用真实 callback(Object[]) 接口验证形状。
+     */
+    static void invokeNoNewMessage(Method callback, Object jsCallback)
+            throws InvocationTargetException, IllegalAccessException {
+        callback.invoke(jsCallback, new Object[]{noNewMessageCallbackArgs()});
     }
 
     /** getOnlineData 的空回调参数；每次新建列表，防止回调修改后影响下一次。 */

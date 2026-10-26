@@ -1,6 +1,8 @@
 package com.quietmap.app.hooks;
 
+import android.Manifest;
 import android.app.Activity;
+import android.content.pm.PackageManager;
 import android.os.SystemClock;
 import android.util.Log;
 
@@ -37,9 +39,13 @@ import io.github.libxposed.api.XposedModule;
  *    其余权限引导原样 proceed。
  *
  * 3) so2#i(Activity, JSONObject, String)V
- *    权限请求参数桥。JSON 的 permissionType 命中通知权限时，复制 JSON 并把
- *    permissionType 改写为 "location" 后 proceedWith —— 通知权限被降级为定位
- *    权限请求，页面仍走正常权限流程但不再索要通知权限；否则原样 proceed。
+ *    权限请求参数桥。只有同时满足以下条件才把 permissionType 改写为 "location"：
+ *    - permissionType 是**单一**通知权限（不含逗号/分号/竖线/空白，不含其他权限）；
+ *    - 目标 Activity 的定位权限已经授予（fine + coarse 都已授权）。
+ *    改写用 chain.proceed(Object[]) 传新参数（libxposed 102 的 proceedWith(Object)
+ *    改的是 this，不是参数）。不满足条件时原样放行并限流记录
+ *    "notify guide pass (unsafe rewrite skipped)"，避免新增定位弹窗或丢掉复合
+ *    权限串里的相机/存储等权限。
  *
  * isNotificationPermission：空/null 为 false；toUpperCase(Locale.ROOT) 后
  * 包含 POST_NOTIFICATIONS 或 NOTIFICATION 即命中。
@@ -147,7 +153,8 @@ final class NotifyGuideHooks {
                             && args.get(1) instanceof JSONObject) {
                         JSONObject request = (JSONObject) args.get(1);
                         String type = request.optString(FIELD_PERM_TYPE, "");
-                        if (isNotificationPermission(type)) {
+                        if (shouldRewritePermission(type,
+                                hasLocationPermission(args.get(0)))) {
                             JSONObject patched = rewriteNotificationPermission(request);
                             Object[] newArgs = new Object[]{args.get(0), patched, args.get(2)};
                             logThrottled("rewrite:" + type,
@@ -155,10 +162,12 @@ final class NotifyGuideHooks {
                                             + " -> location");
                             HookKit.hit(module, f, logLine);
                             proceeded = true;
-                            return chain.proceedWith(newArgs);
+                            // proceedWith(Object) 改的是 this；改参数必须用 proceed(Object[])。
+                            return chain.proceed(newArgs);
                         }
-                        logThrottled("pass:" + type,
-                                "notify guide pass permissionType=" + type);
+                        logThrottled("pass-unsafe:" + type,
+                                "notify guide pass (unsafe rewrite skipped)"
+                                        + " permissionType=" + type);
                     } else {
                         logThrottled("pass:<no-json>",
                                 "notify guide pass permissionType=<no-json>");
@@ -254,6 +263,58 @@ final class NotifyGuideHooks {
         }
         String upper = permission.toUpperCase(Locale.ROOT);
         return upper.contains("POST_NOTIFICATIONS") || upper.contains("NOTIFICATION");
+    }
+
+    /**
+     * 单一通知权限：去空白后不含逗号/分号/竖线，且不包含内部空白。
+     * 复合串（如 "POST_NOTIFICATIONS,CAMERA"）绝不能整体改写成 location，
+     * 否则会丢掉相机/存储等权限，或把未知权限串变成另一次弹窗。
+     */
+    static boolean isSingleNotificationPermission(String permission) {
+        if (permission == null) {
+            return false;
+        }
+        String trimmed = permission.trim();
+        if (trimmed.isEmpty()
+                || trimmed.indexOf(',') >= 0
+                || trimmed.indexOf(';') >= 0
+                || trimmed.indexOf('|') >= 0) {
+            return false;
+        }
+        for (int i = 0; i < trimmed.length(); i++) {
+            if (Character.isWhitespace(trimmed.charAt(i))) {
+                return false;
+            }
+        }
+        return isNotificationPermission(trimmed);
+    }
+
+    /**
+     * 只有“单一通知权限 + 定位已授权”才允许改写。
+     * 定位未授权时改成 location 会新增定位权限弹窗，宁可不改写。
+     */
+    static boolean shouldRewritePermission(String permissionType, boolean locationGranted) {
+        return isSingleNotificationPermission(permissionType) && locationGranted;
+    }
+
+    /**
+     * 定位权限是否已经完整授予：fine 与 coarse 都已授权。
+     * Android 12+ 只给 approximate 时 coarse 为 true、fine 为 false，
+     * 此时再请求 location 仍可能弹“精确位置”升级框，因此按未授权处理。
+     */
+    private static boolean hasLocationPermission(Object activityLike) {
+        if (!(activityLike instanceof Activity)) {
+            return false;
+        }
+        try {
+            Activity activity = (Activity) activityLike;
+            return activity.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)
+                    == PackageManager.PERMISSION_GRANTED
+                    && activity.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)
+                    == PackageManager.PERMISSION_GRANTED;
+        } catch (Throwable ignored) {
+            return false;
+        }
     }
 
     /**

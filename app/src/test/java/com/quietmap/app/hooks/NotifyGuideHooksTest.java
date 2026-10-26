@@ -59,6 +59,46 @@ public class NotifyGuideHooksTest {
     }
 
     @Test
+    public void singleNotificationPermissionIsRecognized() {
+        assertTrue(NotifyGuideHooks.isSingleNotificationPermission(
+                "android.permission.POST_NOTIFICATIONS"));
+        assertTrue(NotifyGuideHooks.isSingleNotificationPermission(
+                "  android.permission.NOTIFICATION  "));
+    }
+
+    @Test
+    public void compositeOrOtherPermissionsAreNotSingleNotification() {
+        assertFalse(NotifyGuideHooks.isSingleNotificationPermission(
+                "android.permission.POST_NOTIFICATIONS,android.permission.CAMERA"));
+        assertFalse(NotifyGuideHooks.isSingleNotificationPermission(
+                "android.permission.POST_NOTIFICATIONS;android.permission.CAMERA"));
+        assertFalse(NotifyGuideHooks.isSingleNotificationPermission(
+                "android.permission.POST_NOTIFICATIONS|android.permission.CAMERA"));
+        assertFalse(NotifyGuideHooks.isSingleNotificationPermission(
+                "android.permission.POST_NOTIFICATIONS android.permission.CAMERA"));
+        assertFalse(NotifyGuideHooks.isSingleNotificationPermission(
+                "android.permission.CAMERA"));
+        assertFalse(NotifyGuideHooks.isSingleNotificationPermission(null));
+        assertFalse(NotifyGuideHooks.isSingleNotificationPermission(""));
+    }
+
+    @Test
+    public void rewriteOnlyWhenSingleNotificationAndLocationGranted() {
+        assertTrue(NotifyGuideHooks.shouldRewritePermission(
+                "android.permission.POST_NOTIFICATIONS", true));
+        assertFalse("定位未授予时改写会新增定位弹窗",
+                NotifyGuideHooks.shouldRewritePermission(
+                        "android.permission.POST_NOTIFICATIONS", false));
+        assertFalse("复合权限串不能整体改写",
+                NotifyGuideHooks.shouldRewritePermission(
+                        "android.permission.POST_NOTIFICATIONS,android.permission.CAMERA",
+                        true));
+        assertFalse("非通知权限不改写",
+                NotifyGuideHooks.shouldRewritePermission(
+                        "android.permission.CAMERA", true));
+    }
+
+    @Test
     public void rewriteCopiesAndReplacesPermissionType() throws Exception {
         JSONObject original = new JSONObject()
                 .put("permissionType", "android.permission.POST_NOTIFICATIONS")

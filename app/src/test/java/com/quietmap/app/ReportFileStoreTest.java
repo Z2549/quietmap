@@ -37,6 +37,24 @@ public class ReportFileStoreTest {
     }
 
     @Test
+    public void acceptsTenMinuteOldFileButRejectsPastThirtyMinutes() throws Exception {
+        long now = System.currentTimeMillis();
+        File tenMinutes = write("ten-minutes.json",
+                json(now - 10 * 60_000L, "reg.splash_gate", "x"));
+        assertTrue("10 分钟仍在 30 分钟 TTL 内",
+                tenMinutes.setLastModified(now - 10 * 60_000L));
+        assertNotNull(ReportFileStore.read(tenMinutes, now, ReportFileStore.MAX_AGE_MS));
+
+        File stale = write("over-ttl.json",
+                json(now - ReportFileStore.MAX_AGE_MS - 1_000L, "reg.splash_gate", "x"));
+        assertTrue(stale.setLastModified(now - ReportFileStore.MAX_AGE_MS - 1_000L));
+        assertNull("超过 30 分钟不再算新鲜数据",
+                ReportFileStore.read(stale, now, ReportFileStore.MAX_AGE_MS));
+        // 但诊断页仍可用 readLastKnown 展示“最近一次数据 + 时间”。
+        assertNotNull(ReportFileStore.readLastKnown(stale));
+    }
+
+    @Test
     public void rejectsStaleMtime() throws Exception {
         long now = System.currentTimeMillis();
         File file = write("stale-mtime.json", json(now, "reg.splash_gate", "x"));

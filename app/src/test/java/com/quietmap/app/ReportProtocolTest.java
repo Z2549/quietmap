@@ -106,4 +106,29 @@ public class ReportProtocolTest {
         assertEquals(Long.MAX_VALUE, ReportProtocol.mergeHit(Long.MAX_VALUE, 1L));
         assertEquals(Long.MAX_VALUE, ReportProtocol.mergeHit(1L, Long.MAX_VALUE));
     }
+
+    @Test
+    public void resetSessionOnlyForNewMainProcessSession() {
+        assertTrue(ReportProtocol.shouldResetSession(null, "s1", true));
+        assertTrue(ReportProtocol.shouldResetSession("s0", "s1", true));
+        assertFalse("同一会话不清理", ReportProtocol.shouldResetSession("s1", "s1", true));
+        assertFalse("子进程不能清空其他进程数据",
+                ReportProtocol.shouldResetSession("s0", "s1", false));
+        assertFalse("没有 session 的旧客户端不清理",
+                ReportProtocol.shouldResetSession("s0", null, true));
+        assertFalse(ReportProtocol.shouldResetSession("s0", "", true));
+    }
+
+    @Test
+    public void valueChangedOnlyWhenActuallyWritten() {
+        assertTrue(ReportProtocol.valueChanged("reg.a", null, "x"));
+        assertFalse(ReportProtocol.valueChanged("reg.a", "x", "x"));
+        assertTrue(ReportProtocol.valueChanged("reg.a", "x", "y"));
+        assertFalse("skip 相同不应刷新时间戳",
+                ReportProtocol.valueChanged("skip.a", "old", "old"));
+        assertTrue(ReportProtocol.valueChanged("hit.a", "3", "5"));
+        assertFalse("hit 变小不写", ReportProtocol.valueChanged("hit.a", "5", "3"));
+        assertFalse("hit 非法不写", ReportProtocol.valueChanged("hit.a", "5", "bad"));
+        assertTrue(ReportProtocol.valueChanged("hit.a", null, "1"));
+    }
 }

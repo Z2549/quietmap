@@ -54,4 +54,28 @@ public class ReportPathsTest {
         assertTrue(ReportPaths.candidates(root, null, MODULE, "").size() == 1);
         assertTrue(ReportPaths.candidates(null, null, MODULE, TARGET).isEmpty());
     }
+
+    @Test
+    public void writeCandidatesNeverIncludeModuleMediaDir() {
+        File root = new File("root");
+        List<File> files = ReportPaths.writeCandidates(root, null, TARGET);
+        assertEquals(2, files.size());
+        assertEquals(new File(new File(new File(root, "Android/media"), TARGET),
+                ReportPaths.FILE_NAME), files.get(0));
+        assertEquals(new File(new File(new File(new File(root, "Android/data"), TARGET),
+                "files"), ReportPaths.FILE_NAME), files.get(1));
+        for (File file : files) {
+            assertTrue("目标进程不能写模块 media 目录: " + file,
+                    !file.getPath().contains(MODULE));
+        }
+    }
+
+    @Test
+    public void writeCandidatesUseExplicitTargetFilesDirAndSkipMissingRoot() {
+        File targetFiles = new File("target-files");
+        List<File> files = ReportPaths.writeCandidates(null, targetFiles, TARGET);
+        assertEquals(1, files.size());
+        assertEquals(new File(targetFiles, ReportPaths.FILE_NAME), files.get(0));
+        assertTrue(ReportPaths.writeCandidates(null, null, TARGET).isEmpty());
+    }
 }

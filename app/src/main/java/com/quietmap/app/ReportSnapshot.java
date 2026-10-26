@@ -8,7 +8,11 @@ import java.util.TreeMap;
 
 /**
  * 诊断快照的纯 Java JSON 编解码，格式固定为：
- * {"v":1,"updated_at":<毫秒>,"data":{"reg.xxx":"...","hit.xxx":"3"}}。
+ * {"v":1,"updated_at":<毫秒>,"session":"<uuid>","data":{"reg.xxx":"..."}}。
+ *
+ * session 标识目标进程的一次运行（进程启动时生成 UUID）；跨进程写同一文件时，
+ * 只有同一 session 才合并，旧 session 的数据整体替换，避免旧 skip/reg 被盖上
+ * 当前时间戳后继续显示。旧版本文件没有 session 字段，解析为 null。
  *
  * 不依赖 android.* / org.json，JVM 单测可直接覆盖序列化、反序列化与损坏输入。
  * 只做结构校验，键白名单/长度校验在 {@link ReportProtocol}，读取侧由
@@ -18,22 +22,34 @@ public final class ReportSnapshot {
 
     public static final int VERSION = 1;
 
-    /** 快照最多 66 个键；留足余量，同时防止损坏文件把内存撑爆。 */
+    /** 快照最多 1000 个键；留足余量，同时防止损坏文件把内存撑爆。 */
     public static final int MAX_ENTRIES = 1000;
 
     private static final int MAX_INPUT_CHARS = 256 * 1024;
     private static final int MAX_DEPTH = 32;
+    private static final int MAX_SESSION_CHARS = 128;
 
     private final long updatedAt;
+    private final String session;
     private final Map<String, String> data;
 
     public ReportSnapshot(long updatedAt, Map<String, String> data) {
+        this(updatedAt, null, data);
+    }
+
+    public ReportSnapshot(long updatedAt, String session, Map<String, String> data) {
         this.updatedAt = updatedAt;
+        this.session = session;
         this.data = Collections.unmodifiableMap(copyWithoutNulls(data));
     }
 
     public long updatedAt() {
         return updatedAt;
+    }
+
+    /** 进程运行标识；旧文件/占位文件可能为 null。 */
+    public String session() {
+        return session;
     }
 
     public Map<String, String> data() {
@@ -47,11 +63,20 @@ public final class ReportSnapshot {
 
     /** 稳定输出（键按字典序），同一份快照生成的字节可直接比较。 */
     public static String toJson(long updatedAt, Map<String, String> data) {
+        return toJson(updatedAt, null, data);
+    }
+
+    /** 带 session 的稳定输出；session 为 null/空时不写该字段（兼容旧格式）。 */
+    public static String toJson(long updatedAt, String session, Map<String, String> data) {
         Map<String, String> sorted = copyWithoutNulls(data);
-        StringBuilder sb = new StringBuilder(128 + sorted.size() * 48);
+        StringBuilder sb = new StringBuilder(160 + sorted.size() * 48);
         sb.append("{\"v\":").append(VERSION)
-                .append(",\"updated_at\":").append(Math.max(0L, updatedAt))
-                .append(",\"data\":{");
+                .append(",\"updated_at\":").append(Math.max(0L, updatedAt));
+        if (session != null && !session.isEmpty()) {
+            sb.append(",\"session\":");
+            writeString(sb, session);
+        }
+        sb.append(",\"data\":{");
         boolean first = true;
         for (Map.Entry<String, String> e : sorted.entrySet()) {
             if (!first) {
@@ -106,6 +131,15 @@ public final class ReportSnapshot {
             if (updatedAt < 0L) {
                 return null;
             }
+            String session = null;
+            Object sessionObject = object.get("session");
+            if (sessionObject != null) {
+                if (!(sessionObject instanceof String)
+                        || ((String) sessionObject).length() > MAX_SESSION_CHARS) {
+                    return null;
+                }
+                session = (String) sessionObject;
+            }
             Object dataObject = object.get("data");
             if (!(dataObject instanceof Map)) {
                 return null;
@@ -120,7 +154,7 @@ public final class ReportSnapshot {
             if (data.size() > MAX_ENTRIES) {
                 return null;
             }
-            return new ReportSnapshot(updatedAt, data);
+            return new ReportSnapshot(updatedAt, session, data);
         } catch (RuntimeException e) {
             return null;
         }

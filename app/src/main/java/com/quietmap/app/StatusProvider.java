@@ -12,6 +12,8 @@ import android.util.Log;
 
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * 目标进程（高德）→ 模块 App 的诊断状态通道。
@@ -37,7 +39,9 @@ public final class StatusProvider extends ContentProvider {
     public static final String PREFS = "qm_report";
 
     /** Provider 通道最后写入时间；用于和文件兜底的 mtime 比较新旧。 */
-    static final String PREFS_UPDATED_AT = "meta.updated_at";
+    static final String PREFS_UPDATED_AT = ReportProtocol.PREFS_UPDATED_AT_KEY;
+    /** 主进程最近一次运行的 session；变化时清理旧会话的 reg/skip/hit。 */
+    static final String PREFS_SESSION = ReportProtocol.PREFS_SESSION_KEY;
 
     public static final String PREFIX_REG = ReportProtocol.PREFIX_REG;
     public static final String PREFIX_HIT = ReportProtocol.PREFIX_HIT;
@@ -51,14 +55,31 @@ public final class StatusProvider extends ContentProvider {
 
     private static final int MAX_ITEMS = 800;
 
+    /** Provider.onCreate 在主线程；目录/占位文件 I/O 放到单线程后台初始化。 */
+    private static final ExecutorService FILE_INIT_EXECUTOR =
+            Executors.newSingleThreadExecutor(r -> {
+                Thread t = new Thread(r, "qm-report-init");
+                t.setDaemon(true);
+                return t;
+            });
+
     @Override
     public boolean onCreate() {
-        // 模块 App 进程启动时预创建 Android/media/<模块包名>/qm_report.json，
-        // 让 HyperOS 上的目标进程有可写文件。失败只记日志，不影响 Provider。
-        try {
-            ReportFileReader.ensureSharedFile(getContext());
-        } catch (Throwable t) {
-            Log.w(TAG, "qmreport file sink ensure failed", t);
+        // 模块 App 进程启动时后台预创建 Android/media/<模块包名>/qm_report.json。
+        // 失败只记日志，不影响 Provider；onCreate 不阻塞主线程。
+        final Context context = getContext();
+        if (context != null) {
+            try {
+                FILE_INIT_EXECUTOR.execute(() -> {
+                    try {
+                        ReportFileReader.ensureSharedFile(context);
+                    } catch (Throwable t) {
+                        Log.w(TAG, "qmreport file sink ensure failed", t);
+                    }
+                });
+            } catch (Throwable t) {
+                Log.w(TAG, "qmreport file sink init submit failed", t);
+            }
         }
         return true;
     }
@@ -89,7 +110,16 @@ public final class StatusProvider extends ContentProvider {
         }
         SharedPreferences sp = context.getSharedPreferences(PREFS, 0);
         SharedPreferences.Editor editor = sp.edit();
-        int accepted = 0;
+        String session = extras.getString("session");
+        boolean mainProcess = extras.getBoolean("main", false);
+        boolean reset = ReportProtocol.shouldResetSession(
+                sp.getString(PREFS_SESSION, null), session, mainProcess);
+        if (reset) {
+            // 目标 App 主进程已重启：旧会话的 reg/skip/hit 全部作废，
+            // 避免上一轮运行的 skip 永久保留并伪装成新数据。
+            editor.clear();
+        }
+        boolean changed = false;
         for (int i = 0; i < keys.length; i++) {
             String key = keys[i];
             String value = values[i];
@@ -98,8 +128,8 @@ public final class StatusProvider extends ContentProvider {
             }
             if (key.startsWith(PREFIX_HIT)) {
                 // 命中计数取历史最大值：高德多进程各自回传，取 max 不会重复累加，
-                // 也不会被另一进程的低计数覆盖回去。
-                long prev = sp.getLong(VALUE_PREFIX + key, 0L);
+                // 也不会被另一进程的低计数覆盖回去。新会话从 0 开始。
+                long prev = reset ? 0L : sp.getLong(VALUE_PREFIX + key, 0L);
                 Long next = ReportProtocol.parseHit(value);
                 if (next == null) {
                     continue;
@@ -107,14 +137,26 @@ public final class StatusProvider extends ContentProvider {
                 long merged = ReportProtocol.mergeHit(prev, next);
                 if (merged > prev) {
                     editor.putLong(VALUE_PREFIX + key, merged);
+                    changed = true;
                 }
             } else {
-                editor.putString(VALUE_PREFIX + key, value);
+                String existing = reset ? null
+                        : sp.getString(VALUE_PREFIX + key, null);
+                if (ReportProtocol.valueChanged(key, existing, value)) {
+                    editor.putString(VALUE_PREFIX + key, value);
+                    changed = true;
+                }
             }
-            accepted++;
         }
-        if (accepted > 0) {
+        if (mainProcess && session != null && !session.isEmpty()) {
+            editor.putString(PREFS_SESSION, session);
+        }
+        // 只有实际写入（含会话切换清理）才刷新时间戳；否则旧值不能被“盖上”
+        // 一个当前时间戳而显得新鲜。
+        if (changed) {
             editor.putLong(PREFS_UPDATED_AT, System.currentTimeMillis());
+        }
+        if (changed || reset || (mainProcess && session != null && !session.isEmpty())) {
             editor.apply();
         }
         return new Bundle();
