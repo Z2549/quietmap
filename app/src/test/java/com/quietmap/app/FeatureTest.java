@@ -44,11 +44,14 @@ public class FeatureTest {
             .put("popup_clean", "UI-04")
             .put("track_suppress", "PV-04")
             .put("shake_h5", "AD-11")
+            .put("ops_activity", "AD-12")
+            .put("notify_guide", "UI-05")
+            .put("msg_center", "UI-06")
             .build();
 
     @Test
-    public void nineteenFeaturesPresent() {
-        assertEquals("Feature 数量必须是 19", 19, Feature.values().length);
+    public void twentyTwoFeaturesPresent() {
+        assertEquals("Feature 数量必须是 22", 22, Feature.values().length);
     }
 
     @Test

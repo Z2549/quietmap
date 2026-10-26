@@ -19,7 +19,7 @@ public final class ReportProtocol {
     public static final int MAX_KEY = 128;
     public static final int MAX_VALUE = 256;
 
-    /** 19 个 Feature × 3 个前缀 = 57 个合法键，构建后不可变。 */
+    /** 22 个 Feature × 3 个前缀 = 66 个合法键，构建后不可变。 */
     private static final Set<String> ALLOWED_KEYS = buildAllowedKeys();
 
     private ReportProtocol() {

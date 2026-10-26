@@ -65,6 +65,10 @@
             android:icon="@drawable/ic_group_ad"
             android:key="shake_h5" />
 
+        <com.quietmap.app.MaterialSwitchPreference
+            android:icon="@drawable/ic_group_ad"
+            android:key="ops_activity" />
+
     </PreferenceCategory>
 
     <PreferenceCategory android:title="@string/group_ui">
@@ -84,6 +88,14 @@
         <com.quietmap.app.MaterialSwitchPreference
             android:icon="@drawable/ic_group_ui"
             android:key="popup_clean" />
+
+        <com.quietmap.app.MaterialSwitchPreference
+            android:icon="@drawable/ic_group_ui"
+            android:key="notify_guide" />
+
+        <com.quietmap.app.MaterialSwitchPreference
+            android:icon="@drawable/ic_group_ui"
+            android:key="msg_center" />
 
     </PreferenceCategory>
 

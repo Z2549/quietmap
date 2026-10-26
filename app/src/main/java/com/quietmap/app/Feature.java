@@ -13,8 +13,9 @@ package com.quietmap.app;
  *
  * 枚举顺序 = hook 安装顺序：开屏三键放最前（启动路径最敏感，尽早落钩），
  * 批 3 首页三键随后（首页路径，不参与启动链路），批 5 的弹窗/统计/摇一摇
- * 三键放最后（收尾净化，不参与启动链路）。设置页按 group 重新分组显示，
- * 因此这里的顺序不必等于页面显示顺序。
+ * 三键紧随其后，批 6 的运营活动/通知引导/消息中心三键放最后（收尾净化，
+ * 不参与启动链路）。设置页按 group 重新分组显示，因此这里的顺序不必等于
+ * 页面显示顺序。
  */
 public enum Feature {
 
@@ -89,7 +90,27 @@ public enum Feature {
             R.string.f_track_suppress_summary, false, Group.PV),
     /** H5/小程序摇一摇净化（H5ShakePlugin watchShake + H5SensorPlugin + 小程序扩展点）。 */
     SHAKE_H5("AD-11", "shake_h5", R.string.f_shake_h5_title,
-            R.string.f_shake_h5_summary, true, Group.AD);
+            R.string.f_shake_h5_summary, true, Group.AD),
+    /**
+     * 运营活动弹窗净化：关闭运营活动模块开关（AppInitServiceImpl#getOperationModuleSwitch），
+     * 并拦截活动打开入口（ActivitiesService#openOpetationsActivities 3 参/4 参重载）。
+     */
+    OPS_ACTIVITY("AD-12", "ops_activity", R.string.f_ops_activity_title,
+            R.string.f_ops_activity_summary, true, Group.AD),
+    /**
+     * 通知权限引导净化：顶部条（so2#i 把 permissionType 改写为 location）、
+     * 底部浮条（PermissionGuideFloatShow#showNotificationGuide）与系统浮条
+     * （SysPermissionGuideFloatMode#showFloatWithSysCore 仅命中通知权限时跳过）。
+     */
+    NOTIFY_GUIDE("UI-05", "notify_guide", R.string.f_notify_guide_title,
+            R.string.f_notify_guide_summary, true, Group.UI),
+    /**
+     * 消息中心净化：在线消息空数据回调（MessageBoxServiceImpl#getOnlineData）、
+     * 未读角标归零（MsgboxService#getNewComingUnRead_MsgNumFromDB）与
+     * 本地消息清空（MessageBoxManager#getAllLocalMessages）。
+     */
+    MSG_CENTER("UI-06", "msg_center", R.string.f_msg_center_title,
+            R.string.f_msg_center_summary, true, Group.UI);
 
     /** 统一功能编号，格式 AD/UI/PV/EN/EX-NN；只用于展示、日志与文档。 */
     public final String id;

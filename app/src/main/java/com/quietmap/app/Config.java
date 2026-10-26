@@ -31,7 +31,7 @@ public final class Config {
 
     /**
      * 纯 JVM 可测入口：overrides 里缺的键用 Feature 编译期默认值。
-     * 单测的「十九钩子开关矩阵」走这里，不碰框架 API。
+     * 单测的「二十二钩子开关矩阵」走这里，不碰框架 API。
      */
     static Config fromOverrides(Map<String, Boolean> overrides) {
         Config config = new Config();
@@ -79,7 +79,7 @@ public final class Config {
         try {
             remote = (module.getFrameworkProperties() & XposedInterface.PROP_CAP_REMOTE) != 0;
         } catch (Throwable t) {
-            // 能力探测本身失败：按「无 remote」处理，绝不让 19 个功能全部不装。
+            // 能力探测本身失败：按「无 remote」处理，绝不让 22 个功能全部不装。
             module.log(Log.WARN, TAG, "framework properties unavailable: use built-in defaults", t);
             return new Config();
         }
