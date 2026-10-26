@@ -7,6 +7,7 @@ import android.util.Log;
 
 import com.quietmap.app.Feature;
 import com.quietmap.app.HookState;
+import com.quietmap.app.ReportPaths;
 import com.quietmap.app.StatusProvider;
 
 import java.util.ArrayList;
@@ -27,6 +28,10 @@ import java.util.concurrent.TimeUnit;
  *
  * 节流：后台单线程每 3 秒把 HookState 快照打平上报一次，内容没变不发；
  * provider 不可达时退避 60 秒，不刷日志。
+ *
+ * 文件兜底：同一份快照在 Provider 调用之外还会写 Android/media 下的
+ * qm_report.json（见 ReportFileSink）。两条通道各自记录已发送内容，
+ * Provider 失败不影响文件写入，反之亦然。
  */
 final class Report {
 
@@ -36,13 +41,19 @@ final class Report {
     private static volatile boolean sStarted;
     private static volatile Context sContext;
     private static volatile Map<String, String> sLast = new TreeMap<>();
+    private static volatile Map<String, String> sLastFile = new TreeMap<>();
+    private static volatile String sModulePackage = ReportPaths.MODULE_PACKAGE;
     private static volatile long sNextTry;
+    private static volatile long sNextFileTry;
     private static volatile int sErrors;
 
     private Report() {
     }
 
-    static synchronized void start() {
+    static synchronized void start(String modulePackage) {
+        if (modulePackage != null && !modulePackage.isEmpty()) {
+            sModulePackage = modulePackage;
+        }
         if (sStarted) {
             return;
         }
@@ -62,15 +73,40 @@ final class Report {
 
     private static void flush() {
         Map<String, String> batch = snapshot();
-        if (batch.isEmpty() || batch.equals(sLast)) {
+        if (batch.isEmpty()) {
             return;
         }
         long now = System.currentTimeMillis();
-        if (now < sNextTry) {
+        boolean providerDone = batch.equals(sLast);
+        boolean fileDone = batch.equals(sLastFile);
+        if (providerDone && fileDone) {
             return;
         }
         Context context = context();
         if (context == null) {
+            return;
+        }
+
+        // 文件通道不受 Provider 退避影响：HyperOS 上 Provider 长期不可用时，
+        // 诊断页仍要靠这条通道拿到数据。内容没变则不重复写；全部路径失败后
+        // 退避 60 秒，避免每 3 秒重复尝试不可写的目录。
+        if (!fileDone && now >= sNextFileTry) {
+            try {
+                if (ReportFileSink.write(context, sModulePackage, batch)) {
+                    sLastFile = batch;
+                } else {
+                    sNextFileTry = now + 60_000L;
+                }
+            } catch (Throwable t) {
+                sNextFileTry = now + 60_000L;
+                Log.w(TAG, "qmreport file sink crashed", t);
+            }
+        }
+
+        if (providerDone) {
+            return;
+        }
+        if (now < sNextTry) {
             return;
         }
         List<String> keys = new ArrayList<>(batch.keySet());

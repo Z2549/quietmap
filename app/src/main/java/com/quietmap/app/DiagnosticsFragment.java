@@ -57,11 +57,11 @@ public class DiagnosticsFragment extends PreferenceFragmentCompat {
 
     private void build(PreferenceScreen screen) {
         mLastRefreshMs = System.currentTimeMillis();
+        ReportState state = StatusProvider.readState(requireContext());
 
         Preference header = new Preference(requireContext());
         header.setTitle(R.string.diag_title);
-        header.setSummary(getString(R.string.diag_header, refreshTime())
-                + "\n" + getString(R.string.diag_hint));
+        header.setSummary(headerSummary(state));
         header.setSelectable(false);
         screen.addPreference(header);
 
@@ -86,8 +86,8 @@ public class DiagnosticsFragment extends PreferenceFragmentCompat {
                 if (f.group != group) {
                     continue;
                 }
-                category.addPreference(row(f));
-                if (hasData(f)) {
+                category.addPreference(row(f, state));
+                if (hasData(f, state)) {
                     hasData = true;
                 }
             }
@@ -120,24 +120,23 @@ public class DiagnosticsFragment extends PreferenceFragmentCompat {
         screen.addPreference(copy);
     }
 
-    private Preference row(Feature f) {
+    private Preference row(Feature f, ReportState state) {
         Preference p = new Preference(requireContext());
         p.setKey("diag_" + f.key);
         p.setTitle(f.id + "  " + getString(f.titleRes));
-        p.setSummary(summary(f));
+        p.setSummary(summary(f, state));
         p.setSelectable(false);
         return p;
     }
 
     /** 单功能状态：registered · hit N · skip 原因；无数据用“—”。 */
-    private String summary(Feature f) {
+    private String summary(Feature f, ReportState state) {
         if (f.blocked()) {
             return getString(R.string.diag_blocked, f.blockedReason);
         }
-        Context context = requireContext();
-        String reg = StatusProvider.reportString(context, StatusProvider.PREFIX_REG, f.key);
-        long hit = StatusProvider.reportHit(context, f.key);
-        String skip = StatusProvider.reportString(context, StatusProvider.PREFIX_SKIP, f.key);
+        String reg = state.reg(f.key);
+        long hit = state.hit(f.key);
+        String skip = state.skip(f.key);
 
         boolean hasReg = reg != null && !reg.isEmpty();
         boolean hasSkip = skip != null && !skip.isEmpty();
@@ -155,26 +154,63 @@ public class DiagnosticsFragment extends PreferenceFragmentCompat {
     }
 
     /** 是否有任一有效回传，用于决定是否显示空状态提示。 */
-    private boolean hasData(Feature f) {
+    private boolean hasData(Feature f, ReportState state) {
         if (f.blocked()) {
             return true;
         }
-        Context context = requireContext();
-        String reg = StatusProvider.reportString(context, StatusProvider.PREFIX_REG, f.key);
-        String skip = StatusProvider.reportString(context, StatusProvider.PREFIX_SKIP, f.key);
-        long hit = StatusProvider.reportHit(context, f.key);
+        String reg = state.reg(f.key);
+        String skip = state.skip(f.key);
+        long hit = state.hit(f.key);
         return (reg != null && !reg.isEmpty())
                 || (skip != null && !skip.isEmpty())
                 || hit > 0;
     }
 
+    private String headerSummary(ReportState state) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(getString(R.string.diag_header, refreshTime()));
+        sb.append('\n').append(sourceSummary(state));
+        if (state.source() == ReportState.Source.FILE && state.path() != null) {
+            sb.append('\n').append(getString(R.string.diag_source_path, state.path()));
+        }
+        sb.append('\n').append(getString(R.string.diag_hint));
+        return sb.toString();
+    }
+
+    /** 真机排查关键：文件兜底是否生效、最后更新时间，以及具体走了哪条路径。 */
+    private String sourceSummary(ReportState state) {
+        switch (state.source()) {
+            case FILE:
+                return getString(R.string.diag_source_file, lastUpdated(state.updatedAt()));
+            case PROVIDER:
+                return getString(R.string.diag_source_provider, lastUpdated(state.updatedAt()));
+            case NONE:
+            default:
+                return getString(R.string.diag_source_none);
+        }
+    }
+
+    private String lastUpdated(long timestamp) {
+        if (timestamp <= 0L) {
+            return getString(R.string.diag_no_data);
+        }
+        Date date = new Date(timestamp);
+        return DateFormat.getDateFormat(requireContext()).format(date)
+                + " " + DateFormat.getTimeFormat(requireContext()).format(date);
+    }
+
     private void copyDiagnostics() {
+        ReportState state = StatusProvider.readState(requireContext());
         StringBuilder sb = new StringBuilder();
         sb.append(getString(R.string.app_name)).append(' ').append(versionName()).append('\n');
         sb.append(getString(R.string.diag_header, refreshTime())).append('\n');
+        sb.append(sourceSummary(state)).append('\n');
+        if (state.source() == ReportState.Source.FILE && state.path() != null) {
+            sb.append(getString(R.string.diag_source_path, state.path())).append('\n');
+        }
         for (Feature f : Feature.values()) {
             sb.append(f.id).append(' ').append(getString(f.titleRes))
-                    .append(": ").append(summary(f)).append('\n');
+                    .append(": ").append(summary(f, state)).append('\n');
         }
         try {
             ClipboardManager cm = (ClipboardManager) requireContext()

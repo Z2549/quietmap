@@ -8,6 +8,10 @@ import android.database.Cursor;
 import android.net.Uri;
 import android.os.Binder;
 import android.os.Bundle;
+import android.util.Log;
+
+import java.util.Map;
+import java.util.TreeMap;
 
 /**
  * 目标进程（高德）→ 模块 App 的诊断状态通道。
@@ -27,8 +31,13 @@ import android.os.Bundle;
  */
 public final class StatusProvider extends ContentProvider {
 
+    private static final String TAG = "QuietMap";
+
     public static final String AUTHORITY = "io.github.yigenhuobah.quietmap.qmreport";
     public static final String PREFS = "qm_report";
+
+    /** Provider 通道最后写入时间；用于和文件兜底的 mtime 比较新旧。 */
+    static final String PREFS_UPDATED_AT = "meta.updated_at";
 
     public static final String PREFIX_REG = ReportProtocol.PREFIX_REG;
     public static final String PREFIX_HIT = ReportProtocol.PREFIX_HIT;
@@ -44,6 +53,13 @@ public final class StatusProvider extends ContentProvider {
 
     @Override
     public boolean onCreate() {
+        // 模块 App 进程启动时预创建 Android/media/<模块包名>/qm_report.json，
+        // 让 HyperOS 上的目标进程有可写文件。失败只记日志，不影响 Provider。
+        try {
+            ReportFileReader.ensureSharedFile(getContext());
+        } catch (Throwable t) {
+            Log.w(TAG, "qmreport file sink ensure failed", t);
+        }
         return true;
     }
 
@@ -98,29 +114,67 @@ public final class StatusProvider extends ContentProvider {
             accepted++;
         }
         if (accepted > 0) {
+            editor.putLong(PREFS_UPDATED_AT, System.currentTimeMillis());
             editor.apply();
         }
         return new Bundle();
     }
 
-    /** 读取一个回传字符串（reg/skip）；没有数据或读取失败返回 null。 */
-    public static String reportString(Context context, String prefix, String key) {
+    /**
+     * 诊断数据统一读入口：文件优先，Provider/SharedPreferences 兜底。
+     * 文件比 prefs 新（或 prefs 没有时间戳）时使用文件。
+     */
+    public static ReportState readState(Context context) {
+        return ReportFileReader.read(context);
+    }
+
+    /** 只读 SharedPreferences，供 ReportFileReader 做新旧比较与兜底。 */
+    static ReportState providerState(Context context) {
+        if (context == null) {
+            return ReportState.none();
+        }
         try {
             SharedPreferences sp = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-            return sp.getString(VALUE_PREFIX + prefix + key, null);
+            Map<String, ?> all = sp.getAll();
+            Map<String, String> data = new TreeMap<>();
+            for (Map.Entry<String, ?> e : all.entrySet()) {
+                String key = e.getKey();
+                if (key == null || !key.startsWith(VALUE_PREFIX)) {
+                    continue;
+                }
+                Object value = e.getValue();
+                String plain = key.substring(VALUE_PREFIX.length());
+                if (value instanceof String) {
+                    data.put(plain, (String) value);
+                } else if (value instanceof Long) {
+                    data.put(plain, String.valueOf(value));
+                }
+            }
+            long updatedAt = 0L;
+            Object timestamp = all.get(PREFS_UPDATED_AT);
+            if (timestamp instanceof Long) {
+                updatedAt = (Long) timestamp;
+            }
+            return ReportState.fromProvider(data, updatedAt);
         } catch (Throwable t) {
+            return ReportState.none();
+        }
+    }
+
+    /** 读取一个回传字符串（reg/skip）；没有数据或读取失败返回 null。 */
+    public static String reportString(Context context, String prefix, String key) {
+        if (context == null) {
             return null;
         }
+        return readState(context).value(prefix, key);
     }
 
     /** 读取命中计数；没有数据或读取失败返回 0。 */
     public static long reportHit(Context context, String key) {
-        try {
-            SharedPreferences sp = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-            return sp.getLong(VALUE_PREFIX + PREFIX_HIT + key, 0L);
-        } catch (Throwable t) {
+        if (context == null) {
             return 0L;
         }
+        return readState(context).hit(key);
     }
 
     /**
@@ -141,6 +195,7 @@ public final class StatusProvider extends ContentProvider {
             store = null;
         }
         int failed = 0;
+        ReportState state = readState(context);
         for (Feature f : Feature.values()) {
             if (f.blocked()) {
                 continue;
@@ -150,9 +205,9 @@ public final class StatusProvider extends ContentProvider {
             if (!enabled) {
                 continue;
             }
-            String reg = reportString(context, PREFIX_REG, f.key);
-            String skip = reportString(context, PREFIX_SKIP, f.key);
-            long hit = reportHit(context, f.key);
+            String reg = state.reg(f.key);
+            String skip = state.skip(f.key);
+            long hit = state.hit(f.key);
             boolean reported = (reg != null && !reg.isEmpty())
                     || (skip != null && !skip.isEmpty())
                     || hit > 0;
