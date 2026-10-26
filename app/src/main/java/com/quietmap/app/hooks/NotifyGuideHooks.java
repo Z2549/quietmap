@@ -1,15 +1,21 @@
 package com.quietmap.app.hooks;
 
 import android.app.Activity;
+import android.os.SystemClock;
+import android.util.Log;
 
 import com.quietmap.app.Feature;
+import com.quietmap.app.HookState;
 
+import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 import io.github.libxposed.api.XposedInterface;
 import io.github.libxposed.api.XposedModule;
@@ -55,6 +61,12 @@ final class NotifyGuideHooks {
     private static final String FIELD_PERMISSION = "guidePermissionStr";
     private static final String FIELD_PERMISSION_LIST = "permissionList";
 
+    /** 真机诊断日志限流窗口：同一 key 10 秒内最多一条。 */
+    private static final long LOG_INTERVAL_MS = 10_000L;
+    private static final int MAX_LOG_KEYS = 64;
+    private static final Object LOG_LOCK = new Object();
+    private static final ConcurrentMap<String, Long> LAST_LOG_MS = new ConcurrentHashMap<>();
+
     private NotifyGuideHooks() {
     }
 
@@ -80,7 +92,7 @@ final class NotifyGuideHooks {
                 "showNotificationGuide", request);
         setAccessibleQuiet(guide);
         HookKit.install(module, f, "PermissionGuideFloatShow#showNotificationGuide", guide,
-                HookKit.skipVoid(module, f,
+                skipVoidLogged(module, f,
                         "PermissionGuideFloatShow#showNotificationGuide"));
     }
 
@@ -129,19 +141,27 @@ final class NotifyGuideHooks {
             public Object intercept(XposedInterface.Chain chain) throws Throwable {
                 boolean proceeded = false;
                 try {
+                    HookState.entry(f);
                     List<Object> args = chain.getArgs();
                     if (args != null && args.size() == 3
                             && args.get(1) instanceof JSONObject) {
                         JSONObject request = (JSONObject) args.get(1);
                         String type = request.optString(FIELD_PERM_TYPE, "");
                         if (isNotificationPermission(type)) {
-                            JSONObject patched = new JSONObject(request.toString());
-                            patched.put(FIELD_PERM_TYPE, PROXY_PERMISSION_TYPE);
+                            JSONObject patched = rewriteNotificationPermission(request);
                             Object[] newArgs = new Object[]{args.get(0), patched, args.get(2)};
+                            logThrottled("rewrite:" + type,
+                                    "notify guide rewrite permissionType=" + type
+                                            + " -> location");
                             HookKit.hit(module, f, logLine);
                             proceeded = true;
                             return chain.proceedWith(newArgs);
                         }
+                        logThrottled("pass:" + type,
+                                "notify guide pass permissionType=" + type);
+                    } else {
+                        logThrottled("pass:<no-json>",
+                                "notify guide pass permissionType=<no-json>");
                     }
                     proceeded = true;
                     return chain.proceed();
@@ -172,7 +192,11 @@ final class NotifyGuideHooks {
                 boolean proceeded = false;
                 try {
                     Object self = chain.getThisObject();
-                    if (isNotificationGuide(self, permission, permissionList)) {
+                    boolean notification = isNotificationGuide(self, permission, permissionList);
+                    logThrottled("fallback:" + detail,
+                            "notify guide fallback " + detail
+                                    + " invoked notification=" + notification);
+                    if (notification) {
                         HookKit.hit(module, f, logLine);
                         return null;
                     }
@@ -230,6 +254,66 @@ final class NotifyGuideHooks {
         }
         String upper = permission.toUpperCase(Locale.ROOT);
         return upper.contains("POST_NOTIFICATIONS") || upper.contains("NOTIFICATION");
+    }
+
+    /**
+     * 复制 JSON 并把 permissionType 改写为 location；返回新对象，不改入参。
+     * 纯函数，hooker 与单测共用。
+     */
+    static JSONObject rewriteNotificationPermission(JSONObject request) throws JSONException {
+        if (request == null) {
+            return null;
+        }
+        JSONObject patched = new JSONObject(request.toString());
+        patched.put(FIELD_PERM_TYPE, PROXY_PERMISSION_TYPE);
+        return patched;
+    }
+
+    /**
+     * 底部浮条兜底挂载点：行为与 HookKit.skipVoid 一致（不调用原方法），
+     * 额外打一条限流日志，便于真机判断到底走了哪条路径。
+     */
+    private static XposedInterface.Hooker skipVoidLogged(final XposedModule module,
+                                                          final Feature f,
+                                                          final String detail) {
+        final String logLine = f.id + " hit " + detail;
+        return new XposedInterface.Hooker() {
+            @Override
+            public Object intercept(XposedInterface.Chain chain) throws Throwable {
+                try {
+                    logThrottled("fallback:" + detail,
+                            "notify guide fallback " + detail + " invoked");
+                    HookKit.hit(module, f, logLine);
+                    return null;
+                } catch (Throwable t) {
+                    HookKit.error(module, f.id + " intercept error " + detail, t);
+                    return chain.proceed();
+                }
+            }
+        };
+    }
+
+    /**
+     * 真机诊断日志限流：同一 key 10 秒内最多一条。
+     * 日志/时钟异常一律吞掉，绝不影响 hook 行为。
+     */
+    private static void logThrottled(String key, String message) {
+        try {
+            long now = SystemClock.elapsedRealtime();
+            synchronized (LOG_LOCK) {
+                Long last = LAST_LOG_MS.get(key);
+                if (last != null && now - last < LOG_INTERVAL_MS) {
+                    return;
+                }
+                if (LAST_LOG_MS.size() >= MAX_LOG_KEYS) {
+                    LAST_LOG_MS.clear();
+                }
+                LAST_LOG_MS.put(key, now);
+            }
+            Log.i(HookKit.TAG, message);
+        } catch (Throwable ignored) {
+            // 日志失败不影响 hook 行为
+        }
     }
 
     private static Field fieldQuiet(Class<?> cls, String name) {

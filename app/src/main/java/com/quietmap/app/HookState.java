@@ -26,6 +26,7 @@ public final class HookState {
     private static final class State {
         final Set<String> labels = ConcurrentHashMap.newKeySet();
         final AtomicLong hits = new AtomicLong();
+        final AtomicLong entries = new AtomicLong();
         volatile String skip;
 
         void markSkip(String reason) {
@@ -60,6 +61,15 @@ public final class HookState {
         return state(f).hits.incrementAndGet();
     }
 
+    /**
+     * 入口计数 +1：hooker 每次被调用都记一次，用于区分
+     * “挂载点从未被调用”和“调用了但未命中/未改写”。
+     * 与 hit 独立，不影响既有诊断字段。
+     */
+    public static void entry(Feature f) {
+        state(f).entries.incrementAndGet();
+    }
+
     // ---- 快照（供 Report 回传） ----
 
     public static List<Feature> touched() {
@@ -79,6 +89,11 @@ public final class HookState {
     public static long hitCount(Feature f) {
         State s = STATES.get(f);
         return s == null ? 0L : s.hits.get();
+    }
+
+    public static long entryCount(Feature f) {
+        State s = STATES.get(f);
+        return s == null ? 0L : s.entries.get();
     }
 
     public static String skipReason(Feature f) {

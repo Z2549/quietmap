@@ -109,6 +109,9 @@ dependencies {
     implementation 'androidx.preference:preference:1.2.1'
 
     testImplementation 'junit:junit:4.13.2'
+    // android.jar 里的 org.json 是抛 "Stub!" 的桩；单测需要真实实现来验证
+    // rewriteNotificationPermission 的复制/改写语义（仅测试运行期使用）。
+    testImplementation 'org.json:json:20240303'
     // HookKitTest 会加载 HookKit 类，其方法签名引用 XposedInterface.Hooker；
     // 主源码用 compileOnly，编译期可见但 AGP 单测 runtime classpath 不包含它，
     // 故为测试运行期补同一坐标（不新增任何新库，仅补运行期可见性）。

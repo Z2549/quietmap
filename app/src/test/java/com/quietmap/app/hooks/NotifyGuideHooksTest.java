@@ -1,13 +1,18 @@
 package com.quietmap.app.hooks;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotSame;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import org.json.JSONObject;
 import org.junit.Test;
 
 /**
  * 通知权限判定规则：空/null 不命中；大小写不敏感；
  * 包含 POST_NOTIFICATIONS 或 NOTIFICATION 即命中，其余权限不命中。
+ * JSON 改写：复制后把 permissionType 换成 location，不改入参。
  */
 public class NotifyGuideHooksTest {
 
@@ -49,5 +54,31 @@ public class NotifyGuideHooksTest {
                 "android.permission.post_notifications"));
         assertTrue(NotifyGuideHooks.isNotificationPermission(
                 "android.permission.notification"));
+        assertTrue(NotifyGuideHooks.isNotificationPermission(
+                "Android.Permission.Post_Notifications"));
+    }
+
+    @Test
+    public void rewriteCopiesAndReplacesPermissionType() throws Exception {
+        JSONObject original = new JSONObject()
+                .put("permissionType", "android.permission.POST_NOTIFICATIONS")
+                .put("scene", "home");
+        JSONObject patched = NotifyGuideHooks.rewriteNotificationPermission(original);
+        assertNotSame("必须复制，不能改入参", original, patched);
+        assertEquals("location", patched.getString("permissionType"));
+        assertEquals("home", patched.getString("scene"));
+        assertEquals("入参保持原值", "android.permission.POST_NOTIFICATIONS",
+                original.getString("permissionType"));
+    }
+
+    @Test
+    public void rewriteHandlesNullAndKeepsOtherFields() throws Exception {
+        assertNull(NotifyGuideHooks.rewriteNotificationPermission(null));
+        JSONObject original = new JSONObject()
+                .put("permissionType", "android.permission.NOTIFICATION")
+                .put("retry", 3);
+        JSONObject patched = NotifyGuideHooks.rewriteNotificationPermission(original);
+        assertEquals(3, patched.getInt("retry"));
+        assertEquals("location", patched.getString("permissionType"));
     }
 }
