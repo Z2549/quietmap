@@ -25,17 +25,18 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 目标进程侧的文件兜底写入。
+ * 目标进程侧的文件兜底写入（调试/旧系统专用，非主通道）。
  *
- * HyperOS 上 ContentResolver.call 会抛 Unknown authority，Provider 通道失效；
- * 这里把同一份快照写到目标 App 自己能写的 Android/media 目录。路径按优先级尝试，
- * 第一条写入并实际读回成功即停止：
+ * 主通道是抽象命名空间 LocalSocket（ReportSocketSink → ReportSocketServer），
+ * 其次才是 ContentProvider。只有两者都失败时 {@link Report} 才调用这里；
+ * Android 11+ 模块 App 通常读不到目标进程写的文件，因此不能作为诊断依据。
+ * 路径按优先级尝试，第一条写入并读回成功即停止：
  *   1. Android/media/&lt;高德包名&gt;/qm_report.json   （目标 App 自己的 media 目录）
  *   2. getExternalFilesDir(null)/qm_report.json     （Android/data/&lt;高德包名&gt;/files）
  *
  * 不再写 Android/media/&lt;模块包名&gt;/：那是模块 App 的目录，只由模块 App 自己
  * 维护。也绝不放宽文件权限（不调用 setReadable/setWritable）：如果模块 App
- * 读不到 path b，读侧回退 Provider/SharedPreferences，而不是把文件设成
+ * 读不到 path b，读侧直接使用 socket/Provider 写入的 prefs，而不是把文件设成
  * world-readable/writable 绕过 Provider 的 UID 校验。
  *
  * 写入方式：同目录 &lt;pid&gt;.tmp + Files.move(REPLACE_EXISTING) 原子替换；

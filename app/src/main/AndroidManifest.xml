@@ -10,6 +10,7 @@
     </queries>
 
     <application
+        android:name=".QuietMapApp"
         android:allowBackup="false"
         android:description="@string/app_description"
         android:icon="@mipmap/ic_launcher"

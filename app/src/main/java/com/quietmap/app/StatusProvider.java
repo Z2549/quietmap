@@ -10,6 +10,7 @@ import android.os.Binder;
 import android.os.Bundle;
 import android.util.Log;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.ExecutorService;
@@ -65,9 +66,17 @@ public final class StatusProvider extends ContentProvider {
 
     @Override
     public boolean onCreate() {
+        final Context context = getContext();
+        if (context != null) {
+            // Application.onCreate 通常已经启动；这里再兜底一次，幂等。
+            try {
+                ReportSocketServer.start(context);
+            } catch (Throwable t) {
+                Log.w(TAG, "qmreport socket server start failed", t);
+            }
+        }
         // 模块 App 进程启动时后台预创建 Android/media/<模块包名>/qm_report.json。
         // 失败只记日志，不影响 Provider；onCreate 不阻塞主线程。
-        final Context context = getContext();
         if (context != null) {
             try {
                 FILE_INIT_EXECUTOR.execute(() -> {
@@ -108,10 +117,32 @@ public final class StatusProvider extends ContentProvider {
         if (keys.length > MAX_ITEMS) {
             return null;
         }
+        Map<String, String> data = new LinkedHashMap<>();
+        for (int i = 0; i < keys.length; i++) {
+            if (keys[i] != null && values[i] != null) {
+                data.put(keys[i], values[i]);
+            }
+        }
+        applyReport(context, data, extras.getString("session"),
+                extras.getBoolean("main", false), ReportProtocol.SOURCE_PROVIDER);
+        return new Bundle();
+    }
+
+    /**
+     * 诊断数据落到 SharedPreferences 的唯一入口：Provider.call 与
+     * {@link ReportSocketServer} 共用，保证两条通道的合并语义一致
+     * （hit 取历史最大、reg/skip 覆盖、主进程新 session 清理旧数据）。
+     *
+     * @return true 表示实际写入或执行了会话清理；仅记 session 不算。
+     */
+    static synchronized boolean applyReport(Context context, Map<String, String> data,
+                                            String session, boolean mainProcess,
+                                            String source) {
+        if (context == null || data == null || data.size() > MAX_ITEMS) {
+            return false;
+        }
         SharedPreferences sp = context.getSharedPreferences(PREFS, 0);
         SharedPreferences.Editor editor = sp.edit();
-        String session = extras.getString("session");
-        boolean mainProcess = extras.getBoolean("main", false);
         boolean reset = ReportProtocol.shouldResetSession(
                 sp.getString(PREFS_SESSION, null), session, mainProcess);
         if (reset) {
@@ -120,9 +151,9 @@ public final class StatusProvider extends ContentProvider {
             editor.clear();
         }
         boolean changed = false;
-        for (int i = 0; i < keys.length; i++) {
-            String key = keys[i];
-            String value = values[i];
+        for (Map.Entry<String, String> entry : data.entrySet()) {
+            String key = entry.getKey();
+            String value = entry.getValue();
             if (!ReportProtocol.validKey(key) || !ReportProtocol.isValidValue(value)) {
                 continue;
             }
@@ -156,10 +187,17 @@ public final class StatusProvider extends ContentProvider {
         if (changed) {
             editor.putLong(PREFS_UPDATED_AT, System.currentTimeMillis());
         }
-        if (changed || reset || (mainProcess && session != null && !session.isEmpty())) {
+        if (changed || reset) {
+            // 记录最后一个真正写入数据的通道，诊断页据此显示 socket / Provider。
+            editor.putString(ReportProtocol.PREFS_SOURCE_KEY,
+                    source != null ? source : ReportProtocol.SOURCE_PROVIDER);
+        }
+        boolean wrote = changed || reset
+                || (mainProcess && session != null && !session.isEmpty());
+        if (wrote) {
             editor.apply();
         }
-        return new Bundle();
+        return changed || reset;
     }
 
     /**
@@ -196,6 +234,10 @@ public final class StatusProvider extends ContentProvider {
             Object timestamp = all.get(PREFS_UPDATED_AT);
             if (timestamp instanceof Long) {
                 updatedAt = (Long) timestamp;
+            }
+            Object source = all.get(ReportProtocol.PREFS_SOURCE_KEY);
+            if (ReportProtocol.SOURCE_SOCKET.equals(source)) {
+                return ReportState.fromSocket(data, updatedAt);
             }
             return ReportState.fromProvider(data, updatedAt);
         } catch (Throwable t) {

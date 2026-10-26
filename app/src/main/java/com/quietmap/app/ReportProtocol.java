@@ -19,6 +19,10 @@ public final class ReportProtocol {
     /** 目标进程一次运行的标识；Provider 用它判断是否需要清理旧会话数据。 */
     public static final String PREFS_UPDATED_AT_KEY = "meta.updated_at";
     public static final String PREFS_SESSION_KEY = "meta.session";
+    /** 最后一次实际写入诊断数据的通道，供诊断页显示 socket/Provider。 */
+    public static final String PREFS_SOURCE_KEY = "meta.source";
+    public static final String SOURCE_SOCKET = "socket";
+    public static final String SOURCE_PROVIDER = "provider";
 
     /**
      * 只有主进程在新 session 第一次回传时才允许清理旧会话数据。

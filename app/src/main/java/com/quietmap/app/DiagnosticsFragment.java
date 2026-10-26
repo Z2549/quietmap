@@ -262,6 +262,8 @@ public class DiagnosticsFragment extends PreferenceFragmentCompat {
                         lastUpdated(state.updatedAt()));
             case PROVIDER:
                 return getString(R.string.diag_source_provider, lastUpdated(state.updatedAt()));
+            case SOCKET:
+                return getString(R.string.diag_source_socket, lastUpdated(state.updatedAt()));
             case NONE:
             default:
                 return getString(R.string.diag_source_none);

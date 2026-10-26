@@ -46,6 +46,7 @@
     <string name="diag_source_file">数据来源：文件兜底 · 最后更新 %1$s</string>
     <string name="diag_source_file_stale">数据来源：最近一次文件数据（已过期）· 最后更新 %1$s</string>
     <string name="diag_source_provider">数据来源：Provider · 最后更新 %1$s</string>
+    <string name="diag_source_socket">数据来源：socket · 最后更新 %1$s</string>
     <string name="diag_source_none">数据来源：无（目标进程尚未回传）</string>
     <string name="diag_source_path">文件路径：%1$s</string>
     <string name="diag_empty_title">暂无诊断数据</string>

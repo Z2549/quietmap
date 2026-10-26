@@ -11,12 +11,15 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 /**
- * 模块 App 侧的文件兜底读入口。
+ * 模块 App 侧的诊断数据读取入口。
  *
- * HyperOS 上目标进程 call() StatusProvider 会抛 Unknown authority，Provider 通道
- * 完全不可用；目标进程的 {@code hooks/ReportFileSink} 会把同一份快照写到
- * Android/media 下的 qm_report.json，这里按与写入侧相同的优先级读取：
- *   文件有效且不比 prefs 旧 → 用文件；否则回退 StatusProvider/SharedPreferences。
+ * 主通道是 socket：目标进程把快照发到模块 App 的 ReportSocketServer，统一写入
+ * {@link StatusProvider} 的 SharedPreferences（qm_report）。这里先读 prefs
+ * （来源可能是 socket 或 Provider），再把文件作为**调试/旧系统兜底**按 key 合并：
+ * 文件较新且有效时才优先，否则完全采用 prefs。
+ *
+ * Android 11+ 模块 App 通常读不到目标进程写的 Android/media 文件；读不到时只记
+ * 日志，绝不影响 socket/Provider 数据。
  *
  * 读侧只做尽力而为：任何路径/权限/解析失败都只打日志，不阻塞诊断页。
  */
@@ -27,7 +30,7 @@ public final class ReportFileReader {
     private ReportFileReader() {
     }
 
-    /** 文件优先，Provider/SharedPreferences 兜底。 */
+    /** prefs（socket/Provider）为主；文件仅在更新且有效时按 key 合并。 */
     public static ReportState read(Context context) {
         if (context == null) {
             return ReportState.none();
@@ -111,7 +114,8 @@ public final class ReportFileReader {
      *
      * path a 只由模块 App 自己维护：不再 chmod、不要求目标进程写入，也不把
      * 文件设成 world-readable/writable。模块能否读到目标进程写的 path b 由
-     * 日志里的 canRead/canWrite 决定；读不到时回退 Provider/SharedPreferences。
+     * 日志里的 canRead/canWrite 决定；读不到时诊断页直接使用 socket/Provider
+     * 写入的 prefs，文件通道仅用于调试/旧系统。
      * 本方法所有失败都只记日志。
      */
     public static void ensureSharedFile(Context context) {

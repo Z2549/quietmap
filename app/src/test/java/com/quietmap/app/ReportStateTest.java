@@ -128,6 +128,24 @@ public class ReportStateTest {
         assertNull(state.value(ReportProtocol.PREFIX_SKIP, "splash_gate"));
     }
 
+    @Test
+    public void pickKeepsSocketSourceWhenPrefsAreNewer() {
+        ReportState socket = ReportState.fromSocket(
+                Collections.singletonMap("reg.splash_gate", "socket"), 2_000L);
+        assertEquals(ReportState.Source.SOCKET, socket.source());
+
+        ReportState picked = ReportState.pick(
+                entry(1_000L, 1_000L, "reg.splash_gate", "file"), socket);
+        assertEquals("prefs 较新时必须保留 socket 来源",
+                ReportState.Source.SOCKET, picked.source());
+        assertEquals("socket", picked.reg("splash_gate"));
+
+        ReportState fileWins = ReportState.pick(
+                entry(3_000L, 3_000L, "reg.splash_gate", "file"), socket);
+        assertEquals(ReportState.Source.FILE, fileWins.source());
+        assertEquals("file", fileWins.reg("splash_gate"));
+    }
+
     private static ReportFileStore.Entry entry(long mtime, long updatedAt,
                                                String key, String value) {
         return entry(mtime, updatedAt, Collections.singletonMap(key, value));

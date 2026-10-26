@@ -18,7 +18,8 @@ public final class ReportState {
         NONE,
         FILE,
         FILE_STALE,
-        PROVIDER
+        PROVIDER,
+        SOCKET
     }
 
     private static final ReportState EMPTY = new ReportState(
@@ -64,6 +65,12 @@ public final class ReportState {
                 ReportFileStore.sanitize(data));
     }
 
+    /** socket 通道写入的 prefs 数据；与 Provider 数据同 schema，只区来源。 */
+    public static ReportState fromSocket(Map<String, String> data, long updatedAt) {
+        return new ReportState(Source.SOCKET, updatedAt, null,
+                ReportFileStore.sanitize(data));
+    }
+
     /**
      * 文件与 prefs 按 key 合并，而不是整源二选一：
      * - 两个源都有的 key：hit 取最大值；reg/skip 取较新源的值，
@@ -103,7 +110,7 @@ public final class ReportState {
                 merged.put(key, preferNonEmpty(fromProvider, fromFile));
             }
         }
-        Source source = fileNewer ? Source.FILE : Source.PROVIDER;
+        Source source = fileNewer ? Source.FILE : provider.source();
         long updatedAt = fileNewer ? file.snapshot.updatedAt() : provider.updatedAt();
         String path = fileNewer && file.file != null ? file.file.getPath() : null;
         return new ReportState(source, updatedAt, path, merged);

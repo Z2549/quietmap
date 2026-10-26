@@ -178,6 +178,10 @@ final class MsgCenterHooks {
     /**
      * getOnlineData Hooker：取第 1 参回调，反射回调空数据后返回 null（不 proceed）；
      * 回调为 null 时放行原方法，任何异常在未 proceed 前都 fail-open。
+     *
+     * 回调自身抛异常（InvocationTargetException）时不再 proceed：回调可能已经
+     * 执行了一半，proceed 会让原方法再回调一次，调用方收到两次结果。
+     * 只有反射调用失败（参数形状/访问权限）才 fail-open。
      */
     private static XposedInterface.Hooker emptyDataCallback(final XposedModule module,
                                                             final Feature f,
@@ -199,6 +203,14 @@ final class MsgCenterHooks {
                     hitQuiet(module, f, logLine);
                     logThrottled(module, "getOnlineData:suppressed",
                             "msg center getOnlineData suppressed");
+                    return null;
+                } catch (InvocationTargetException t) {
+                    if (proceeded) {
+                        throw t;
+                    }
+                    Throwable cause = t.getCause() != null ? t.getCause() : t;
+                    HookKit.error(module, f.id + " callback threw " + detail, cause);
+                    // 回调已进入业务侧，不能再执行原方法造成双重回调。
                     return null;
                 } catch (Throwable t) {
                     if (proceeded) {
