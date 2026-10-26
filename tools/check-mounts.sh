@@ -28,7 +28,7 @@
 #   GONE = 类不存在了（R8/升级改了名），需要重新定位
 #   SIG  = 类还在但方法签名变了（改名 / 参数变化），看差异再决定
 #
-# 挂载点清单（共 62 条）与 app/src/main/java/com/quietmap/app/hooks/ 下的常量一一对应，
+# 挂载点清单（共 63 条）与 app/src/main/java/com/quietmap/app/hooks/ 下的常量一一对应，
 # 完整签名取自 dexsql 对高德 17.01.0.2012 的实测。
 # 混淆类挂载点（Lze5#attemptRequestData、La8#run）另有方法体字符串锚点监控：
 # 签名在但锚点串丢了也判 SIG（运行时 DexKit 按锚点定位会失败）。
@@ -379,7 +379,8 @@ Lcom/alipay/android/phone/mobilesdk/permission/guide/sys/SysPermissionGuideFloat
 Lso2;->i(Landroid/app/Activity;Lorg/json/JSONObject;Ljava/lang/String;)V|notify_guide 权限请求参数桥(permissionType改写)
 Lcom/autonavi/bundle/msgbox/ajx/MessageBoxServiceImpl;->getOnlineData(Lcom/autonavi/bundle/msgbox/ajx/IGetMessageCallback;Ljava/lang/String;)V|msg_center 在线消息空数据回调
 Lcom/autonavi/minimap/bundle/msgbox/impl/MsgboxService;->getNewComingUnRead_MsgNumFromDB()I|msg_center 未读角标归零
-Lcom/autonavi/minimap/bundle/msgbox/util/MessageBoxManager;->getAllLocalMessages()Ljava/util/ArrayList;|msg_center 本地消息列表清空'
+Lcom/autonavi/minimap/bundle/msgbox/util/MessageBoxManager;->getAllLocalMessages()Ljava/util/ArrayList;|msg_center 本地消息列表清空
+Lcom/autonavi/bundle/msgbox/ajx/ModuleMessageBox;->hasNewMessage(Lcom/autonavi/minimap/ajx3/core/JsFunctionCallback;)V|msg_center AJX新消息桥(回调"0")'
 
 echo
 echo "APK: $TARGET_APK"

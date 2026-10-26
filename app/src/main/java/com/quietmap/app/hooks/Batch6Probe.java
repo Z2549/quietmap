@@ -24,7 +24,11 @@ import io.github.libxposed.api.XposedModule;
  * "PROBE view &lt;类名&gt;"。用于真机确认消息中心实际走的类/方法。
  *
  * release 路径不安装：DEBUG_PROBE 为编译期常量 false，install 直接返回。
- * 后续真机验证时把 DEBUG_PROBE 临时改为 true 即可恢复完整探针行为。
+ * 后续真机验证时把 DEBUG_PROBE 临时改为 true 即可恢复完整探针行为：
+ * - 方法探针会跳过 {@link #ALREADY_HOOKED} 中的正式挂载点，因为 Xposed
+ *   同一方法只能挂一个 hook；
+ * - View 构造器探针会 hook android.view.View 的全部构造器，只用于短时定位
+ *   AJX 列表/列表项的实际 View 类，定位完必须改回 false，不要留在日常构建里。
  */
 final class Batch6Probe {
 
@@ -37,6 +41,22 @@ final class Batch6Probe {
             "com.autonavi.minimap.bundle.msgbox.impl.MsgboxService",
             "com.autonavi.bundle.msgbox.ajx.ModuleMessageBox"
     };
+
+    /**
+     * 正式钩子已经占用的方法：Xposed 同一方法只能挂一个 hook，
+     * 探针必须跳过，否则 DEBUG_PROBE=true 时这些方法只会记录 hook 失败。
+     * 按「类简名#方法名」匹配，覆盖所有重载。
+     */
+    private static final Set<String> ALREADY_HOOKED = new HashSet<>(Arrays.asList(
+            "MessageBoxManager#getMessages",
+            "MessageBoxManager#retrieveRemoteMessages",
+            "MessageBoxManager#getAllLocalMessages",
+            "MessageBoxManager#getMessageInBackground",
+            "MessageBoxManager#handlePush",
+            "MessageBoxManager#fetchMessageFromMainMap",
+            "MsgboxService#getNewComingUnRead_MsgNumFromDB",
+            "ModuleMessageBox#hasNewMessage"
+    ));
 
     private Batch6Probe() {
     }
@@ -62,6 +82,10 @@ final class Batch6Probe {
                         continue;
                     }
                     String label = cls.getSimpleName() + "#" + m.getName();
+                    if (ALREADY_HOOKED.contains(label)) {
+                        Log.i(TAG, "PROBE skip already hooked " + label);
+                        continue;
+                    }
                     HookKit.install(module, f, "PROBE" + label, m, methodProbe(label));
                 } catch (Throwable ignored) {
                     // 单个方法探针失败不影响其余方法
