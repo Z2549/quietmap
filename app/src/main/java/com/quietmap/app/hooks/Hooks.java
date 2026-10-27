@@ -56,6 +56,7 @@ public final class Hooks {
         m.put(Feature.SHAKE_H5, ShakeH5Hooks::install);
         m.put(Feature.OPS_ACTIVITY, OpsActivityHooks::install);
         m.put(Feature.NOTIFY_GUIDE, NotifyGuideHooks::install);
+        m.put(Feature.MSG_CENTER, MsgCenterHooks::install);
         INSTALLERS = Collections.unmodifiableMap(m);
     }
 

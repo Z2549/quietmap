@@ -1,85 +1,76 @@
 package com.quietmap.app.hooks;
 
-import android.util.Log;
-
 import com.quietmap.app.Feature;
 import com.quietmap.app.HookState;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.Locale;
 
 import io.github.libxposed.api.XposedInterface;
 import io.github.libxposed.api.XposedModule;
 
 /**
- * msg_center 消息中心净化。
+ * msg_center 消息中心净化（UI-06）。
  *
- * dexsql 实测（高德 17.01.0.2012）挂载点：
+ * 真机逆向结论（高德 17.01.0.2012，2026-10-27）：
  *
- * 1) com.autonavi.bundle.msgbox.ajx.MessageBoxServiceImpl#getOnlineData
- *    (IGetMessageCallback, String)V
- *    在线消息拉取入口。不执行原方法，改为反射调用回调的
- *    onDataCallback(List, List, boolean, int)，传空列表 / false / 0：
- *    页面收到「无消息」而不是错误。回调为 null 或反射失败时 fail-open proceed。
+ * 1) 消息页是 AJX 页
+ *    path://amap_bundle_messagetab/src/pages/message_tab/MessageTab.page.js。
+ *    页面进入时由 JS 通过 AJX 模块分发（AbstractModule#callMethod）调用：
+ *    - AjxModuleBadge#getAllSessionList(boolean, JsFunctionCallback)
+ *    - AjxModuleBadge#getBadgeInfo("messagetab")（我的页消息图标角标）
+ *    - AjxModuleLocalStorage#getItemSync("message_tab", "recentlyMsgList-<uid>")
+ *    真机日志实证：getAllSessionList 的 SessionCallback#onResult 返回
+ *    {"convList":[...]}，其中 unreadNum 之和正好是消息图标角标 14；
+ *    消息页列表（打卡消息通知/地点评论/高德达人/足迹动态/公共交通动态/
+ *    高德账号安全/高德酒店等）全部来自该 convList。
  *
- * 2) com.autonavi.minimap.bundle.msgbox.impl.MsgboxService
- *    #getNewComingUnRead_MsgNumFromDB()I
- *    未读消息数直接返回 0，角标归零。
+ * 2) 旧的 MessageBoxManager / ModuleMessageBox / MsgboxService 四个挂载点
+ *    只覆盖首页消息盒/旧消息盒；0.7.0 真机命中 hasNewMessage 后消息页列表和
+ *    角标仍不变。UI-02 的 getMessages 钩子在消息页进入时也命中，但同样
+ *    不影响 convList。因此 UI-06 改为直接拦截 AJX bridge 数据入口。
  *
- * 3) com.autonavi.minimap.bundle.msgbox.util.MessageBoxManager#getAllLocalMessages()
- *    本地消息列表返回空 ArrayList（返回类型实测为 java.util.ArrayList）。
+ * 3) 本实现只改 Java/AJX bridge 的返回值，不改 JS 资源、不伪造页面：
+ *    - getAllSessionList：只对消息页/我的页，直接回调 {"convList":[]}，
+ *      不执行原方法；JS 收到空会话列表后渲染「暂无新消息」空态。
+ *    - getBadgeInfo("messagetab")：只对消息页/我的页，返回 {"value":0}，
+ *      消息图标角标归零。
+ *    - getItemSync("message_tab", "recentlyMsgList-*")：返回 "[]"，
+ *      清掉最近消息本地缓存；setItemSync 对同一 key 返回 true 不落盘，
+ *      避免下次进入又从缓存恢复。
  *
- * 4) com.autonavi.bundle.msgbox.ajx.ModuleMessageBox#hasNewMessage(JsFunctionCallback)V
- *    消息页 AJX JS 实际调用的「有无新消息」桥。方法本身是 void，原实现
- *    new 一个 GetMessageListener 后调 MessageBoxManager#getMessages(listener, true, xf2)，
- *    回调结果由 ModuleMessageBox$c.onFinish 以字符串 "1"/"0" 回给 JS。
- *    这里不执行原方法，直接反射调用 JsFunctionCallback#callback(Object[])
- *    并传 "0"（无新消息），避免 JS 等待一个永远不会到达的回调。
+ * 线程：getAllSessionList 由 AJX 调用线程（真机实测为后台线程）同步进入；
+ * 原实现也是在 AjxModuleBadge$b.onResult 的同一线程调用
+ * JsFunctionCallback#callback，这里不额外切线程。
  *
- * 与 home_msg_filter 的覆盖关系：
- * - HomeMsgFilterHooks 挂的是 MessageBoxManager#getMessages 三个重载；
- *   hasNewMessage 的原实现内部正是调用其中一个重载。两个开关同时开启时，
- *   getMessages 已被 skipVoid 挡住，hasNewMessage 的 listener 不会收到数据，
- *   属于「间接覆盖」。
- * - 但两个开关独立：只开 msg_center、关掉 home_msg_filter 时，getMessages 会
- *   正常执行，hasNewMessage 仍可能把 "1" 回给 JS。因此在 hasNewMessage 上单独
- *   加挂载点是必要的，不是重复 hook 同一个方法（Xposed 同方法只能一个 hook）。
- * - 该 hook 不调用 getMessages，也不写 mHasNewMessageJsFuncCallback 字段；
- *   JS 侧只依赖 callback 的 "0"。
+ * fail-open：
+ * - 非消息页/我的页：一律 proceed 原方法，不影响首页、搜索等页面；
+ * - 回调为 null、页面路径取不到、类/方法缺失：proceed 原方法；
+ * - 回调已开始执行后抛异常：不再 proceed，避免 JS 收到两次结果。
  *
- * 可观测性（只读日志，不改行为）：
- * - 每个挂载点被调用时打 "msg center <label> invoked"；
- * - getOnlineData 空回调成功时打 "msg center getOnlineData suppressed"；
- * - hasNewMessage 回 "0" 时打 "msg center hasNewMessage=false"；
- * - 同一 key 10 秒内最多一条，避免消息页滚动时刷屏。
- *
- * 注意：账号安全、公交动态等真实通知也会一并隐藏，设置页可单独关闭本项。
- * 临时探针见 {@link Batch6Probe}，release 默认不安装。
+ * 注意：会话列表包含账号安全、公交动态等真实通知，本项开启时会一并隐藏；
+ * 设置页可单独关闭本项，关闭后恢复原始列表和角标。
  */
 final class MsgCenterHooks {
 
-    private static final String MSG_BOX_SERVICE_IMPL =
-            "com.autonavi.bundle.msgbox.ajx.MessageBoxServiceImpl";
-    private static final String GET_MESSAGE_CALLBACK =
-            "com.autonavi.bundle.msgbox.ajx.IGetMessageCallback";
-    private static final String MSGBOX_SERVICE =
-            "com.autonavi.minimap.bundle.msgbox.impl.MsgboxService";
-    private static final String MESSAGE_BOX_MANAGER =
-            "com.autonavi.minimap.bundle.msgbox.util.MessageBoxManager";
-    private static final String MODULE_MESSAGE_BOX =
-            "com.autonavi.bundle.msgbox.ajx.ModuleMessageBox";
+    private static final String AJX_MODULE_BADGE =
+            "com.amap.bundle.badgesystem.ajxmodule.AjxModuleBadge";
+    private static final String AJX_MODULE_LOCAL_STORAGE =
+            "com.autonavi.minimap.ajx3.modules.internalmodules.AjxModuleLocalStorage";
     private static final String JS_FUNCTION_CALLBACK =
             "com.autonavi.minimap.ajx3.core.JsFunctionCallback";
 
-    /** 同一 key 的观测日志最小间隔。 */
-    static final long LOG_WINDOW_MS = 10_000L;
+    /** getAllSessionList 回调的空会话列表 JSON（JS 侧按 {"convList":[...]} 解析）。 */
+    static final String EMPTY_SESSION_LIST_JSON = "{\"convList\":[]}";
+    /** getBadgeInfo("messagetab") 的零角标 JSON。 */
+    static final String ZERO_BADGE_JSON = "{\"value\":0}";
+    /** 最近消息缓存的空 JSON 数组。 */
+    static final String EMPTY_RECENT_LIST_JSON = "[]";
 
-    private static final LogThrottle THROTTLE = new LogThrottle();
+    static final String MESSAGE_TAB_NAMESPACE = "message_tab";
+    static final String RECENT_LIST_KEY_PREFIX = "recentlyMsgList-";
+    static final String MESSAGE_TAB_BADGE_ID = "messagetab";
 
     private MsgCenterHooks() {
     }
@@ -87,85 +78,237 @@ final class MsgCenterHooks {
     static void install(XposedModule module, ClassLoader cl) {
         Feature f = Feature.MSG_CENTER;
         try {
-            installOnlineData(module, f, cl);
-            installUnreadCount(module, f, cl);
-            installLocalMessages(module, f, cl);
-            installHasNewMessage(module, f, cl);
+            installSessionList(module, f, cl);
+            installBadgeInfo(module, f, cl);
+            installRecentListCache(module, f, cl);
             Batch6Probe.install(module, f, cl);
         } catch (Throwable t) {
             HookKit.error(module, f.id + " install aborted", t);
         }
     }
 
-    /** 在线消息：直接回调空数据，不执行原方法。 */
-    private static void installOnlineData(XposedModule module, Feature f, ClassLoader cl) {
-        Class<?> impl = HookKit.findClass(module, f, cl, MSG_BOX_SERVICE_IMPL);
-        Class<?> callback = HookKit.findClass(module, f, cl, GET_MESSAGE_CALLBACK);
-        if (impl == null || callback == null) {
-            return;
-        }
-        Method getOnlineData = HookKit.findMethod(module, f, impl,
-                "getOnlineData", callback, String.class);
-        Method onDataCallback = HookKit.findMethodQuiet(callback, "onDataCallback",
-                List.class, List.class, boolean.class, int.class);
-        if (onDataCallback == null) {
-            HookKit.warn(module, f.id
-                    + " skip: IGetMessageCallback#onDataCallback signature not found");
-            return;
-        }
-        setAccessibleQuiet(module, f, onDataCallback);
-        HookKit.install(module, f, "MessageBoxServiceImpl#getOnlineData", getOnlineData,
-                emptyDataCallback(module, f, onDataCallback));
-    }
-
-    /** 未读角标：固定返回 0。 */
-    private static void installUnreadCount(XposedModule module, Feature f, ClassLoader cl) {
-        Class<?> service = HookKit.findClass(module, f, cl, MSGBOX_SERVICE);
-        Method unread = HookKit.findMethod(module, f, service,
-                "getNewComingUnRead_MsgNumFromDB");
-        HookKit.install(module, f, "MsgboxService#getNewComingUnRead_MsgNumFromDB", unread,
-                zeroInt(module, f, "MsgboxService#getNewComingUnRead_MsgNumFromDB"));
-    }
-
-    /** 本地消息列表：固定返回空 ArrayList。 */
-    private static void installLocalMessages(XposedModule module, Feature f, ClassLoader cl) {
-        Class<?> manager = HookKit.findClass(module, f, cl, MESSAGE_BOX_MANAGER);
-        if (manager == null) {
-            return;
-        }
-        Method allLocal = HookKit.findMethod(module, f, manager, "getAllLocalMessages");
-        HookKit.install(module, f, "MessageBoxManager#getAllLocalMessages", allLocal,
-                emptyArrayList(module, f, "MessageBoxManager#getAllLocalMessages"));
-    }
-
     /**
-     * AJX 消息页「有无新消息」桥：hasNewMessage(JsFunctionCallback)V。
-     * 必须同时拿到回调接口的 callback(Object[]) 才能把 "0" 回给 JS；
-     * 回调方法缺失时跳过并 warn，不挂一个永远不会回调的钩子。
+     * 会话列表：AjxModuleBadge#getAllSessionList(boolean, JsFunctionCallback)V。
+     * 只对消息页/我的页回调空列表，其他页面原样放行。
      */
-    private static void installHasNewMessage(XposedModule module, Feature f, ClassLoader cl) {
-        Class<?> moduleMessageBox = HookKit.findClass(module, f, cl, MODULE_MESSAGE_BOX);
-        Class<?> jsCallback = HookKit.findClass(module, f, cl, JS_FUNCTION_CALLBACK);
-        if (moduleMessageBox == null || jsCallback == null) {
+    private static void installSessionList(XposedModule module, Feature f, ClassLoader cl) {
+        Class<?> badge = HookKit.findClass(module, f, cl, AJX_MODULE_BADGE);
+        Class<?> callback = HookKit.findClass(module, f, cl, JS_FUNCTION_CALLBACK);
+        if (badge == null || callback == null) {
             return;
         }
-        Method hasNewMessage = HookKit.findMethod(module, f, moduleMessageBox,
-                "hasNewMessage", jsCallback);
-        Method callback = HookKit.findMethodQuiet(jsCallback, "callback", Object[].class);
-        if (callback == null) {
+        Method getAll = HookKit.findMethod(module, f, badge,
+                "getAllSessionList", boolean.class, callback);
+        Method callbackMethod = HookKit.findMethodQuiet(callback, "callback", Object[].class);
+        if (callbackMethod == null) {
             HookKit.warn(module, f.id
                     + " skip: JsFunctionCallback#callback(Object[]) signature not found");
             return;
         }
-        setAccessibleQuiet(module, f, callback);
-        HookKit.install(module, f, "ModuleMessageBox#hasNewMessage", hasNewMessage,
-                noNewMessage(module, f, callback));
+        setAccessibleQuiet(module, f, callbackMethod);
+        HookKit.install(module, f, "AjxModuleBadge#getAllSessionList", getAll,
+                emptySessionList(module, f, callbackMethod));
     }
 
     /**
-     * setAccessible 在个别 ROM 上会抛 SecurityException；这里只记日志，
-     * 方法本身是 public 时仍然可以 invoke，真失败会在 intercept 内 fail-open。
+     * 我的页消息图标角标：AjxModuleBadge#getBadgeInfo("messagetab")String。
+     * 只对消息页/我的页返回 {"value":0}，其他 badgeId/页面放行。
      */
+    private static void installBadgeInfo(XposedModule module, Feature f, ClassLoader cl) {
+        Class<?> badge = HookKit.findClass(module, f, cl, AJX_MODULE_BADGE);
+        if (badge == null) {
+            return;
+        }
+        Method getBadgeInfo = HookKit.findMethod(module, f, badge,
+                "getBadgeInfo", String.class);
+        HookKit.install(module, f, "AjxModuleBadge#getBadgeInfo", getBadgeInfo,
+                zeroMessageTabBadge(module, f));
+    }
+
+    /**
+     * 最近消息缓存：AjxModuleLocalStorage#getItemSync("message_tab",
+     * "recentlyMsgList-<uid>")String。读到该 key 返回 "[]"；
+     * setItemSync 对同一 key 直接返回 true，不写入营销消息缓存。
+     */
+    private static void installRecentListCache(XposedModule module, Feature f, ClassLoader cl) {
+        Class<?> storage = HookKit.findClass(module, f, cl, AJX_MODULE_LOCAL_STORAGE);
+        if (storage == null) {
+            return;
+        }
+        Method getSync = HookKit.findMethod(module, f, storage,
+                "getItemSync", String.class, String.class);
+        HookKit.install(module, f, "AjxModuleLocalStorage#getItemSync", getSync,
+                emptyRecentList(module, f));
+
+        Method setSync = HookKit.findMethodQuiet(storage, "setItemSync",
+                String.class, String.class, Object.class);
+        if (setSync != null) {
+            HookKit.install(module, f, "AjxModuleLocalStorage#setItemSync", setSync,
+                    skipRecentListWrite(module, f));
+        } else {
+            HookKit.warn(module, f.id
+                    + " skip: AjxModuleLocalStorage#setItemSync not found");
+        }
+    }
+
+    /** 会话列表 Hooker：命中消息页/我的页时回调空列表，不执行原方法。 */
+    private static XposedInterface.Hooker emptySessionList(final XposedModule module,
+                                                           final Feature f,
+                                                           final Method callbackMethod) {
+        final String logLine = f.id + " hit AjxModuleBadge#getAllSessionList";
+        return new XposedInterface.Hooker() {
+            @Override
+            public Object intercept(XposedInterface.Chain chain) throws Throwable {
+                noteEntry(f);
+                try {
+                    // 参数顺序：(boolean, JsFunctionCallback)：回调是第 2 参。
+                    Object jsCallback = chain.getArg(1);
+                    if (jsCallback == null
+                            || !isMessageCenterPage(jsPath(chain.getThisObject()))) {
+                        return chain.proceed();
+                    }
+                    invokeSessionListCallback(callbackMethod, jsCallback);
+                    hitQuiet(module, f, logLine);
+                    return null;
+                } catch (InvocationTargetException t) {
+                    Throwable cause = t.getCause() != null ? t.getCause() : t;
+                    HookKit.error(module, f.id + " session callback threw", cause);
+                    // 回调可能已进入 JS，不能再执行原方法造成双重回调。
+                    return null;
+                } catch (Throwable t) {
+                    // 非 InvocationTargetException 说明实参形状/访问权限失败，
+                    // 目标方法没有真正执行，按 fail-open 放行原逻辑。
+                    HookKit.error(module, f.id + " intercept error getAllSessionList", t);
+                    return chain.proceed();
+                }
+            }
+        };
+    }
+
+    /** 角标 Hooker：只把 messagetab 的角标归零，其他 badgeId 原样放行。 */
+    private static XposedInterface.Hooker zeroMessageTabBadge(final XposedModule module,
+                                                              final Feature f) {
+        final String logLine = f.id + " hit AjxModuleBadge#getBadgeInfo";
+        return new XposedInterface.Hooker() {
+            @Override
+            public Object intercept(XposedInterface.Chain chain) throws Throwable {
+                noteEntry(f);
+                try {
+                    Object bizId = chain.getArg(0);
+                    if (MESSAGE_TAB_BADGE_ID.equals(bizId)
+                            && isMessageCenterPage(jsPath(chain.getThisObject()))) {
+                        hitQuiet(module, f, logLine);
+                        return ZERO_BADGE_JSON;
+                    }
+                } catch (Throwable t) {
+                    HookKit.error(module, f.id + " intercept error getBadgeInfo", t);
+                }
+                return chain.proceed();
+            }
+        };
+    }
+
+    /** 最近消息缓存读取 Hooker：命中固定 namespace/key 时返回空数组。 */
+    private static XposedInterface.Hooker emptyRecentList(final XposedModule module,
+                                                          final Feature f) {
+        final String logLine = f.id + " hit AjxModuleLocalStorage#getItemSync";
+        return new XposedInterface.Hooker() {
+            @Override
+            public Object intercept(XposedInterface.Chain chain) throws Throwable {
+                noteEntry(f);
+                try {
+                    if (isRecentListKey(chain.getArg(0), chain.getArg(1))) {
+                        hitQuiet(module, f, logLine);
+                        return EMPTY_RECENT_LIST_JSON;
+                    }
+                } catch (Throwable t) {
+                    HookKit.error(module, f.id + " intercept error getItemSync", t);
+                }
+                return chain.proceed();
+            }
+        };
+    }
+
+    /** 最近消息缓存写入 Hooker：命中固定 namespace/key 时返回 true，不落盘。 */
+    private static XposedInterface.Hooker skipRecentListWrite(final XposedModule module,
+                                                              final Feature f) {
+        final String logLine = f.id + " hit AjxModuleLocalStorage#setItemSync";
+        return new XposedInterface.Hooker() {
+            @Override
+            public Object intercept(XposedInterface.Chain chain) throws Throwable {
+                noteEntry(f);
+                try {
+                    if (isRecentListKey(chain.getArg(0), chain.getArg(1))) {
+                        hitQuiet(module, f, logLine);
+                        return Boolean.TRUE;
+                    }
+                } catch (Throwable t) {
+                    HookKit.error(module, f.id + " intercept error setItemSync", t);
+                }
+                return chain.proceed();
+            }
+        };
+    }
+
+    /**
+     * 是否消息中心相关页面：消息 Tab（messagetab）与我的页（MinePage）。
+     * 只在这两个页面清空会话列表/角标，首页、搜索等页面不受影响。
+     */
+    static boolean isMessageCenterPage(String jsPath) {
+        if (jsPath == null) {
+            return false;
+        }
+        String lower = jsPath.toLowerCase(Locale.ROOT);
+        return lower.contains("messagetab") || lower.contains("minepage");
+    }
+
+    /** 是否最近消息缓存 key：namespace 固定 message_tab，key 以 recentlyMsgList- 开头。 */
+    static boolean isRecentListKey(Object namespace, Object key) {
+        return MESSAGE_TAB_NAMESPACE.equals(namespace)
+                && key instanceof String
+                && ((String) key).startsWith(RECENT_LIST_KEY_PREFIX);
+    }
+
+    /**
+     * 从 AJX module 实例取当前页面路径（IAjxContext#getJsPath）。
+     * 失败返回 null，调用方按“非消息页”fail-open。
+     */
+    static String jsPath(Object module) {
+        if (module == null) {
+            return null;
+        }
+        try {
+            Object context = module.getClass().getMethod("getContext").invoke(module);
+            if (context == null) {
+                return null;
+            }
+            Object path = context.getClass().getMethod("getJsPath").invoke(context);
+            return path instanceof String ? (String) path : null;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /**
+     * 反射调用 JsFunctionCallback#callback(Object[])，传入单个 Object[] 实参。
+     *
+     * 关键：参数本身是数组，Method#invoke 的可变参数必须再包一层
+     * `new Object[]{ emptySessionListCallbackArgs() }`；直接传
+     * `Object[]{"{\"convList\":[]}"}` 会被当成一个 String 实参，必然抛
+     * IllegalArgumentException。抽成包内静态方法，单测可用真实
+     * callback(Object[]) 接口验证形状。
+     */
+    static void invokeSessionListCallback(Method callback, Object jsCallback)
+            throws InvocationTargetException, IllegalAccessException {
+        callback.invoke(jsCallback, new Object[]{emptySessionListCallbackArgs()});
+    }
+
+    /** getAllSessionList 回调参数；实测 JS 侧收单个字符串 JSON。 */
+    static Object[] emptySessionListCallbackArgs() {
+        return new Object[]{EMPTY_SESSION_LIST_JSON};
+    }
+
+    /** setAccessible 在个别 ROM 上会抛 SecurityException；只记日志，public 方法仍可 invoke。 */
     private static void setAccessibleQuiet(XposedModule module, Feature f, Method method) {
         try {
             method.setAccessible(true);
@@ -173,164 +316,6 @@ final class MsgCenterHooks {
             HookKit.warn(module, f.id + " setAccessible failed: "
                     + method.getDeclaringClass().getName() + "#" + method.getName());
         }
-    }
-
-    /**
-     * getOnlineData Hooker：取第 1 参回调，反射回调空数据后返回 null（不 proceed）；
-     * 回调为 null 时放行原方法，任何异常在未 proceed 前都 fail-open。
-     *
-     * 回调自身抛异常（InvocationTargetException）时不再 proceed：回调可能已经
-     * 执行了一半，proceed 会让原方法再回调一次，调用方收到两次结果。
-     * 只有反射调用失败（参数形状/访问权限）才 fail-open。
-     */
-    private static XposedInterface.Hooker emptyDataCallback(final XposedModule module,
-                                                            final Feature f,
-                                                            final Method onDataCallback) {
-        final String detail = "MessageBoxServiceImpl#getOnlineData";
-        final String logLine = f.id + " hit " + detail;
-        return new XposedInterface.Hooker() {
-            @Override
-            public Object intercept(XposedInterface.Chain chain) throws Throwable {
-                noteEntry(module, f, "getOnlineData");
-                boolean proceeded = false;
-                try {
-                    Object callback = chain.getArg(0);
-                    if (callback == null) {
-                        proceeded = true;
-                        return chain.proceed();
-                    }
-                    onDataCallback.invoke(callback, emptyOnlineDataArgs());
-                    hitQuiet(module, f, logLine);
-                    logThrottled(module, "getOnlineData:suppressed",
-                            "msg center getOnlineData suppressed");
-                    return null;
-                } catch (InvocationTargetException t) {
-                    if (proceeded) {
-                        throw t;
-                    }
-                    Throwable cause = t.getCause() != null ? t.getCause() : t;
-                    HookKit.error(module, f.id + " callback threw " + detail, cause);
-                    // 回调已进入业务侧，不能再执行原方法造成双重回调。
-                    return null;
-                } catch (Throwable t) {
-                    if (proceeded) {
-                        throw t;
-                    }
-                    HookKit.error(module, f.id + " intercept error " + detail, t);
-                    return chain.proceed();
-                }
-            }
-        };
-    }
-
-    /** 未读角标 Hooker：返回 0，不 proceed。 */
-    private static XposedInterface.Hooker zeroInt(final XposedModule module,
-                                                  final Feature f,
-                                                  final String detail) {
-        final String logLine = f.id + " hit " + detail;
-        return new XposedInterface.Hooker() {
-            @Override
-            public Object intercept(XposedInterface.Chain chain) throws Throwable {
-                noteEntry(module, f, "getNewComingUnRead_MsgNumFromDB");
-                try {
-                    hitQuiet(module, f, logLine);
-                    return Integer.valueOf(0);
-                } catch (Throwable t) {
-                    HookKit.error(module, f.id + " intercept error " + detail, t);
-                    return chain.proceed();
-                }
-            }
-        };
-    }
-
-    /**
-     * 本地消息 Hooker：每次返回新的空 ArrayList。
-     * 不复用同一个实例，避免调用方 add/remove 后污染下一次调用的结果。
-     */
-    private static XposedInterface.Hooker emptyArrayList(final XposedModule module,
-                                                         final Feature f,
-                                                         final String detail) {
-        final String logLine = f.id + " hit " + detail;
-        return new XposedInterface.Hooker() {
-            @Override
-            public Object intercept(XposedInterface.Chain chain) throws Throwable {
-                noteEntry(module, f, "getAllLocalMessages");
-                try {
-                    hitQuiet(module, f, logLine);
-                    return new ArrayList<>();
-                } catch (Throwable t) {
-                    HookKit.error(module, f.id + " intercept error " + detail, t);
-                    return chain.proceed();
-                }
-            }
-        };
-    }
-
-    /**
-     * hasNewMessage Hooker：不执行原方法（原方法会调 getMessages 并异步回调 "1"/"0"），
-     * 直接回调 JS "0"。void 方法返回 null。callback 为 null 时只抑制，不回调。
-     *
-     * 回调自身抛异常（InvocationTargetException）时不再 proceed：回调可能已经
-     * 执行了一半，proceed 会让原方法再回调一次，JS 侧会收到两次结果。
-     * 只有反射调用失败（参数形状/访问权限）才 fail-open。
-     */
-    private static XposedInterface.Hooker noNewMessage(final XposedModule module,
-                                                       final Feature f,
-                                                       final Method callback) {
-        final String detail = "ModuleMessageBox#hasNewMessage";
-        final String logLine = f.id + " hit " + detail;
-        return new XposedInterface.Hooker() {
-            @Override
-            public Object intercept(XposedInterface.Chain chain) throws Throwable {
-                noteEntry(module, f, "hasNewMessage");
-                try {
-                    Object jsCallback = chain.getArg(0);
-                    if (jsCallback != null) {
-                        invokeNoNewMessage(callback, jsCallback);
-                    }
-                    hitQuiet(module, f, logLine);
-                    logThrottled(module, "hasNewMessage:false",
-                            "msg center hasNewMessage=false");
-                    return null;
-                } catch (InvocationTargetException t) {
-                    Throwable cause = t.getCause() != null ? t.getCause() : t;
-                    HookKit.error(module, f.id + " callback threw " + detail, cause);
-                    // 回调已进入 JS 侧，不能再执行原方法造成双重回调。
-                    return null;
-                } catch (Throwable t) {
-                    HookKit.error(module, f.id + " intercept error " + detail, t);
-                    return chain.proceed();
-                }
-            }
-        };
-    }
-
-    /**
-     * 反射调用 JsFunctionCallback#callback(Object[])，传入单个 Object[] 实参。
-     *
-     * 关键：参数本身是数组，Method#invoke 的可变参数必须再包一层
-     * `new Object[]{ noNewMessageCallbackArgs() }`；直接传 `Object[]{"0"}`
-     * 会被当成一个 String 实参，必然抛 IllegalArgumentException。
-     * 抽成包内静态方法，单测可用真实 callback(Object[]) 接口验证形状。
-     */
-    static void invokeNoNewMessage(Method callback, Object jsCallback)
-            throws InvocationTargetException, IllegalAccessException {
-        callback.invoke(jsCallback, new Object[]{noNewMessageCallbackArgs()});
-    }
-
-    /** getOnlineData 的空回调参数；每次新建列表，防止回调修改后影响下一次。 */
-    static Object[] emptyOnlineDataArgs() {
-        return new Object[]{
-                new ArrayList<>(),
-                new ArrayList<>(),
-                Boolean.FALSE,
-                Integer.valueOf(0)
-        };
-    }
-
-    /** hasNewMessage 回调给 JS 的「无新消息」参数；实测 JS 侧收字符串 "0"/"1"。 */
-    static Object[] noNewMessageCallbackArgs() {
-        return new Object[]{"0"};
     }
 
     /** 命中计数与采样日志；诊断失败不影响返回值。 */
@@ -342,53 +327,12 @@ final class MsgCenterHooks {
         }
     }
 
-    /** 记录入口计数与 invoked 日志；任何异常都吞掉，绝不影响挂载点行为。 */
-    private static void noteEntry(XposedModule module, Feature f, String label) {
+    /** 记录入口计数；任何异常都吞掉，绝不影响挂载点行为。 */
+    private static void noteEntry(Feature f) {
         try {
             HookState.entry(f);
         } catch (Throwable ignored) {
             // 诊断计数失败不影响 hook
-        }
-        logThrottled(module, "invoked:" + label, "msg center " + label + " invoked");
-    }
-
-    /** 限流写日志；日志失败不影响 hook。 */
-    private static void logThrottled(XposedModule module, String key, String line) {
-        try {
-            if (THROTTLE.allow(key, System.currentTimeMillis())) {
-                module.log(Log.INFO, HookKit.TAG, line);
-            }
-        } catch (Throwable ignored) {
-            // 日志失败不影响 hook
-        }
-    }
-
-    /**
-     * 纯 JVM 可测的固定窗口限流器：同一 key 在 LOG_WINDOW_MS 内只允许一次。
-     * 时钟回拨（now < previous）时允许一次并重置窗口，避免永久静默。
-     */
-    static final class LogThrottle {
-
-        private final ConcurrentMap<String, AtomicLong> last = new ConcurrentHashMap<>();
-
-        boolean allow(String key, long nowMs) {
-            AtomicLong stamp = last.get(key);
-            if (stamp == null) {
-                AtomicLong created = new AtomicLong(Long.MIN_VALUE);
-                AtomicLong previous = last.putIfAbsent(key, created);
-                stamp = previous != null ? previous : created;
-            }
-            while (true) {
-                long previous = stamp.get();
-                if (previous != Long.MIN_VALUE
-                        && nowMs >= previous
-                        && nowMs - previous < LOG_WINDOW_MS) {
-                    return false;
-                }
-                if (stamp.compareAndSet(previous, nowMs)) {
-                    return true;
-                }
-            }
         }
     }
 }

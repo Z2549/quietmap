@@ -377,10 +377,10 @@ Lcom/autonavi/minimap/bundle/activities/ActivitiesService;->openOpetationsActivi
 Lcom/alipay/android/phone/mobilesdk/permission/guide/PermissionGuideFloatShow;->showNotificationGuide(Lcom/alipay/android/phone/mobilesdk/permission/guide/PermissionGuideRequest;)V|notify_guide 通知权限底部浮条(不展示)
 Lcom/alipay/android/phone/mobilesdk/permission/guide/sys/SysPermissionGuideFloatMode;->showFloatWithSysCore()V|notify_guide 系统浮条(仅通知权限跳过)
 Lso2;->i(Landroid/app/Activity;Lorg/json/JSONObject;Ljava/lang/String;)V|notify_guide 权限请求参数桥(permissionType改写)
-Lcom/autonavi/bundle/msgbox/ajx/MessageBoxServiceImpl;->getOnlineData(Lcom/autonavi/bundle/msgbox/ajx/IGetMessageCallback;Ljava/lang/String;)V|msg_center 在线消息空数据回调
-Lcom/autonavi/minimap/bundle/msgbox/impl/MsgboxService;->getNewComingUnRead_MsgNumFromDB()I|msg_center 未读角标归零
-Lcom/autonavi/minimap/bundle/msgbox/util/MessageBoxManager;->getAllLocalMessages()Ljava/util/ArrayList;|msg_center 本地消息列表清空
-Lcom/autonavi/bundle/msgbox/ajx/ModuleMessageBox;->hasNewMessage(Lcom/autonavi/minimap/ajx3/core/JsFunctionCallback;)V|msg_center AJX新消息桥(回调"0")'
+Lcom/amap/bundle/badgesystem/ajxmodule/AjxModuleBadge;->getAllSessionList(ZLcom/autonavi/minimap/ajx3/core/JsFunctionCallback;)V|msg_center AJX会话列表清空(回调{"convList":[]})
+Lcom/amap/bundle/badgesystem/ajxmodule/AjxModuleBadge;->getBadgeInfo(Ljava/lang/String;)Ljava/lang/String;|msg_center 消息Tab角标归零({"value":0})
+Lcom/autonavi/minimap/ajx3/modules/internalmodules/AjxModuleLocalStorage;->getItemSync(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;|msg_center 最近消息缓存清空(message_tab/recentlyMsgList-*)
+Lcom/autonavi/minimap/ajx3/modules/internalmodules/AjxModuleLocalStorage;->setItemSync(Ljava/lang/String;Ljava/lang/String;Ljava/lang/Object;)Z|msg_center 最近消息缓存写入拦截'
 
 echo
 echo "APK: $TARGET_APK"

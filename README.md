@@ -2,7 +2,7 @@
 
 让高德地图安静下来的 LSPosed 模块：后台净化、数据层断源、收敛弹窗与统计上报。
 
-> 当前版本 **0.8.0**（2026-10-27，versionCode 9）。
+> 当前版本 **0.8.1**（2026-10-28，versionCode 10）。
 > 目标应用：**高德地图 17.01.0.2012**（`com.autonavi.minimap`）。
 > 与高德地图官方无任何关联，仅供学习、研究和个人设备使用。
 
@@ -21,7 +21,7 @@
 
 ## 安装
 
-1. 安装 `quietmap-0.8.0.apk`。
+1. 安装 `quietmap-0.8.1.apk`。
 2. 在 LSPosed 管理器中启用「静途」，作用域勾选「高德地图」。
 3. 强制停止并重新打开高德地图。
 4. 打开模块 App，确认状态卡显示「已激活」。
@@ -29,7 +29,7 @@
 
 ## 功能
 
-共 **22 项**功能：**可用 21 项，blocked 1 项（UI-06 消息中心）**。默认值遵循：广告净化（AD）与界面精简（UI）开启，隐私保护（PV）关闭；blocked 项固定关闭且不可切换。每项可用功能均可单独关闭。
+共 **22 项**功能：**可用 22 项，blocked 0 项**。默认值遵循：广告净化（AD）与界面精简（UI）开启，隐私保护（PV）关闭。每项功能均可单独关闭。
 
 ### 广告净化（AD，默认开）
 
@@ -48,7 +48,7 @@
 | AD-11 | `shake_h5` | H5/小程序摇一摇传感器不注册（保留页面正常振动） |
 | AD-12 | `ops_activity` | 运营活动模块关闭与活动打开入口拦截（真实场景未验证） |
 
-### 界面精简（UI，默认开；UI-06 blocked 除外）
+### 界面精简（UI，默认开）
 
 | ID | key | 功能 |
 |---|---|---|
@@ -57,7 +57,7 @@
 | UI-03 | `search_hotword` | 搜索热词净化（不影响输入联想） |
 | UI-04 | `popup_clean` | 升级提示配置不下载、首页弹窗冲突队列不入队（中风险，可单关） |
 | UI-05 | `notify_guide` | 通知权限引导条不展示、权限请求参数安全改写（真实场景未验证） |
-| UI-06 | `msg_center` | 消息中心净化（**blocked**：真机消息页列表与角标未被清空，暂不可用） |
+| UI-06 | `msg_center` | 消息中心净化（AJX 会话列表清空、消息图标角标归零；只作用于消息页/我的页，可单关） |
 
 ### 隐私保护（PV，默认关）
 
@@ -76,7 +76,7 @@
 |---|---|---|
 | AD-12 运营活动 | 已注册，真实场景未验证 | 3 个挂载点在真机全部 `registered`，但未触发 88VIP/运营弹窗场景，没有 `ops activity` 命中日志，不宣称已生效 |
 | UI-05 通知权限引导 | 已注册，真实场景未验证 | 3 个挂载点在真机全部 `registered`；通知权限已撤销但 `notify guide` 无命中，无法排除系统频控/`noLongerPrompt`，不宣称已生效 |
-| UI-06 消息中心 | **blocked** | blocked 前的真机验收中 4 个挂载点 `registered`，`hasNewMessage` 已返回 `false`，但消息页仍显示完整列表、顶部角标仍为 14，未达到设计效果；当前版本默认关闭、不注册 hook、UI 置灰 |
+| UI-06 消息中心 | 通过 | 已定位 AJX 真实链路：`AjxModuleBadge#getAllSessionList` 返回 `convList`、`getBadgeInfo("messagetab")` 提供角标、`AjxModuleLocalStorage#getItemSync("message_tab", "recentlyMsgList-*")` 为最近消息缓存；真机开启为空列表/角标 0，关闭恢复列表/角标 14，无 FATAL/ANR |
 
 `socket` 与 `Provider` 诊断回传的真实状态：目标进程优先尝试抽象命名空间 LocalSocket，失败回退 Provider，再失败写文件。HyperOS 真机上 socket 报 `socket not created`，**不可用**；Provider 通道已实测可用（`transport=provider` 持续刷新），因此 socket 失败不再作为阻断条件。Android 11+ 文件通道仅作调试/旧系统兜底。
 
@@ -86,7 +86,7 @@
 
 - **状态卡**：正在连接框架… / 未激活 / 框架已连接 / 已激活，四态不新增第五态；副文案显示框架 API、目标版本与 remote prefs 可用性。
 - **异常横幅**：目标版本未适配，或已启用且明确失败的功能数 ≥2 时显示；目标应用未安装、只有 1 项失败、没有诊断数据时不显示。
-- **功能开关**：按 AD → UI → PV 分组；标题与摘要来自功能清单，值写入框架 remote prefs；blocked 项（UI-06）保留行位但置灰、不可切换。
+- **功能开关**：按 AD → UI → PV 分组；标题与摘要来自功能清单，值写入框架 remote prefs；22 项全部可切换。
 - **诊断页**：逐功能显示 `registered · entry N · hit N · skip 原因`，无数据显示 `—`；`entry` 表示钩子入口被调用次数，用于区分“从未调用”和“调用了但未命中”；页首显示数据来源与刷新时间，页尾提供「刷新」「复制诊断信息」；进入页面与 `onResume` 刷新，不自动轮询。
 - **关于页**：模块名、版本名/versionCode、目标应用与适配版本、源码、四模块互链、免责声明、许可证。
 - **页脚**：重启生效与兼容版本提示。
@@ -126,7 +126,7 @@ bash tools/check-mounts.sh "E:\path\to\amap.apk"
 - 诊断 Provider 仅接受高德 UID：`Binder.getCallingUid` + `getPackagesForUid` 必须命中 `com.autonavi.minimap`。
 - 诊断回传在 HyperOS 上 socket 不可用（`socket not created`），实际可用的是 Provider 通道；文件通道仅调试/旧系统兜底。socket 失败会回退，不阻断诊断。
 - UI-05 通知权限引导与 AD-12 运营活动已在真机注册挂载点，但真实场景未验证（无命中/未触发），不能视为已生效。
-- UI-06 消息中心在真机失败（消息页列表与角标未被清空），已标记 blocked，不注册 hook。
+- UI-06 消息中心通过 AJX badge/localStorage bridge 清空消息页会话列表与消息图标角标；会一并隐藏账号安全、公共交通动态等真实通知，可单独关闭。仅保证高德 17.01.0.2012，并且只作用于消息页/我的页。
 - DexKit 扫描仅在主进程启用；非主进程（`:locationservice`、`:widgetProvider`）走类名/方法名兜底。
 - release 缺少 `keystore.properties` 时构建直接失败（`assembleRelease` / `bundleRelease` 抛 `GradleException`），避免产出 debug 签名的正式包。
 
@@ -204,7 +204,7 @@ bash tools/check-mounts.sh
 ```
 
 工具链：AGP 8.13.2 + Gradle wrapper 8.13 + JDK 21（构建），Java source/target 17，compileSdk 37 / minSdk 29 / targetSdk 36。
-release 产物：`app/build/outputs/apk/release/quietmap-0.8.0.apk`（R8 minify + shrinkResources）。
+release 产物：`app/build/outputs/apk/release/quietmap-0.8.1.apk`（R8 minify + shrinkResources）。
 签名读取仓库根目录 `keystore.properties`；缺少该文件时 release 构建直接失败，不会产出用 debug 证书签名的包。
 
 ## GPL 红线

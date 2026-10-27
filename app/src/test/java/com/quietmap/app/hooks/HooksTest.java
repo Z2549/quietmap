@@ -40,8 +40,7 @@ public class HooksTest {
             assertFalse("blocked Feature 不应被安装: " + f.id,
                     Hooks.shouldInstall(f, false));
         }
-        // 当前 UI-06（msg_center）为 blocked，上面的断言必须实际执行到；
-        // 未来新增 blocked 项时同样自动校验这三条规则。
+        // 当前没有 blocked 项；未来新增 blocked 项时同样自动校验这三条规则。
     }
 
     @Test

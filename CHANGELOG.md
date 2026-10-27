@@ -1,5 +1,33 @@
 # Changelog
 
+## v0.8.1 — 2026-10-28
+
+消息中心版本（versionCode 10）：UI-06 从 blocked 恢复可用，基于真机逆向改用 AJX badge/localStorage bridge 清空消息页会话列表与消息图标角标；功能总数 22 项全部可用。
+
+### 修复
+
+- **UI-06 消息中心净化恢复可用**（默认开）：真机确认消息页为 `amap_bundle_messagetab/src/pages/message_tab/MessageTab.page.js`，列表来自 `AjxModuleBadge#getAllSessionList(boolean, JsFunctionCallback)` 返回的 `{"convList":[...]}`，消息图标角标来自 `AjxModuleBadge#getBadgeInfo("messagetab")`，最近消息缓存为 `AjxModuleLocalStorage#getItemSync("message_tab", "recentlyMsgList-<uid>")`。
+- 新挂载点：`getAllSessionList` 命中消息页/我的页时回调 `{"convList":[]}`；`getBadgeInfo("messagetab")` 返回 `{"value":0}`；`getItemSync("message_tab", "recentlyMsgList-*")` 返回 `[]`；`setItemSync` 对同一 key 返回 `true`、不落盘。只改 Java/AJX bridge 返回值，不改 JS 资源、不伪造页面。
+- 移除 0.8.0 的 4 个 `msg_center` 旧挂载点（`MessageBoxServiceImpl#getOnlineData`、`MsgboxService#getNewComingUnRead_MsgNumFromDB`、`MessageBoxManager#getAllLocalMessages`、`ModuleMessageBox#hasNewMessage`）：真机命中 `hasNewMessage=false` 后消息页列表/角标仍不变；首页消息盒/红点仍由 UI-02 覆盖。
+
+### 变更
+
+- 功能总数 22 项：**可用 22、blocked 0**（0.8.0 为可用 21、blocked 1）；UI-06 默认开，设置页可单独关闭。
+- UI-06 只作用于消息页（`messagetab`）与我的页（`MinePage`）；首页、搜索、地图页原样放行。回调为 null、页面路径取不到、类/方法缺失时 fail-open。
+- 旧 0.8.0 的 UI-06 blocked 说明保留在下方历史记录中，便于追溯。
+
+### 验证
+
+- 单测 159 个用例通过（0 失败 / 0 跳过）；`:app:lintDebug` 通过（21 条 warning、0 error）；`assembleDebug` / `assembleRelease` 通过。
+- `tools/verify-apk.sh` PASS（18 个 `[ok]`、0 失败）；`tools/check-mounts.sh` 对高德 17.01.0.2012 共 63 项，OK 63 / SIG 0 / GONE 0。
+- 真机（25102RKBEC / Android 17 / LSPosed 2.2.1 / 高德 17.01.0.2012）：UI-06 开 = 消息页“暂无新消息”空态、无 stuck loading、我的页消息角标 0；关 = 恢复真实会话列表与角标 14；无 FATAL/ANR。配置恢复为 `msg_center=true`，未清数据、未退出账号。
+- UI-05 / AD-12 仍为“挂载点已注册、真实场景未验证”，不宣称生效。
+
+APK: `quietmap-0.8.1.apk`
+versionCode: `10`
+大小: `4,071,144 字节`
+SHA-256: `1e7dd1fa12d387e2fbce26e4171d40013b18cba2632cd9b7e832fa2f8be77535`
+
 ## v0.8.0 — 2026-10-27
 
 批 6 收尾版本（versionCode 9）：新增运营活动与通知权限引导两个净化开关；消息中心因真机未通过标记为 blocked；诊断回传补入口计数，并确认 Provider 通道可用。

@@ -127,12 +127,11 @@ public class FeatureTest {
     }
 
     @Test
-    public void msgCenterIsBlockedAndDefaultsOff() {
+    public void msgCenterIsAvailableAndDefaultsOn() {
         Feature f = Feature.MSG_CENTER;
-        assertTrue("UI-06 在真机未通过，必须标记 blocked", f.blocked());
-        assertFalse("blocked 项默认必须关闭", f.defaultEnabled);
-        assertTrue("blocked 必须写明原因", f.blockedReason != null
-                && !f.blockedReason.isEmpty());
+        assertFalse("UI-06 已完成真机验证，不应再标记 blocked", f.blocked());
+        assertTrue("UI 组功能默认开启", f.defaultEnabled);
+        assertFalse("非 blocked 项不得保留 blocked 原因", f.blockedReason != null);
     }
 
     private static java.util.List<String> keysInEnumOrder() {

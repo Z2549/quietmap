@@ -105,13 +105,15 @@ public enum Feature {
     NOTIFY_GUIDE("UI-05", "notify_guide", R.string.f_notify_guide_title,
             R.string.f_notify_guide_summary, true, Group.UI),
     /**
-     * 消息中心净化：在线消息空数据回调（MessageBoxServiceImpl#getOnlineData）、
-     * 未读角标归零（MsgboxService#getNewComingUnRead_MsgNumFromDB）与
-     * 本地消息清空（MessageBoxManager#getAllLocalMessages）。
+     * 消息中心净化（AJX bridge 数据层断源）：
+     * AjxModuleBadge#getAllSessionList 回调空会话列表、
+     * AjxModuleBadge#getBadgeInfo("messagetab") 角标归零、
+     * AjxModuleLocalStorage#getItemSync("message_tab", "recentlyMsgList-*")
+     * 返回空数组（setItemSync 同 key 不落盘）。
+     * 只作用于消息页与我的页；首页/搜索等页面不受影响。
      */
     MSG_CENTER("UI-06", "msg_center", R.string.f_msg_center_title,
-            R.string.f_msg_center_summary, false, Group.UI,
-            "高德 17.01 消息页列表与角标来自未覆盖的数据链路，真机未通过");
+            R.string.f_msg_center_summary, true, Group.UI);
 
     /** 统一功能编号，格式 AD/UI/PV/EN/EX-NN；只用于展示、日志与文档。 */
     public final String id;
