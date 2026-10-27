@@ -41,9 +41,22 @@ public class HookStateTest {
     }
 
     @Test
+    public void entryCountIsIndependentFromHitCount() {
+        Feature f = Feature.NOTIFY_GUIDE;
+        HookState.entry(f);
+        HookState.entry(f);
+        assertEquals(2L, HookState.entryCount(f));
+        assertEquals(0L, HookState.hitCount(f));
+        HookState.hit(f);
+        assertEquals("hit 不影响入口计数", 2L, HookState.entryCount(f));
+        assertEquals(1L, HookState.hitCount(f));
+    }
+
+    @Test
     public void untouchedFeatureHasEmptyState() {
         Feature f = Feature.H5_INSTALL_APK;
         assertEquals(0L, HookState.hitCount(f));
+        assertEquals(0L, HookState.entryCount(f));
         assertTrue("未触碰的 Feature 不应有标签", HookState.labels(f).isEmpty());
         assertNull("未触碰的 Feature 不应有 skip 原因", HookState.skipReason(f));
     }

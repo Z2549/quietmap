@@ -8,6 +8,13 @@ import android.database.Cursor;
 import android.net.Uri;
 import android.os.Binder;
 import android.os.Bundle;
+import android.util.Log;
+
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.TreeMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * 目标进程（高德）→ 模块 App 的诊断状态通道。
@@ -22,16 +29,24 @@ import android.os.Bundle;
  * 调用方 UID 必须属于 com.autonavi.minimap；key 只接受 ReportProtocol 白名单，
  * value 有长度上限。不存任何敏感信息。
  *
- * key 形如 reg.bg_msg_fetch / hit.bg_msg_fetch / skip.bg_msg_fetch，
- * value 对应注册标签、命中计数、跳过原因。
+ * key 形如 reg.bg_msg_fetch / hit.bg_msg_fetch / entry.bg_msg_fetch /
+ * skip.bg_msg_fetch，value 对应注册标签、命中计数、入口计数、跳过原因。
  */
 public final class StatusProvider extends ContentProvider {
+
+    private static final String TAG = "QuietMap";
 
     public static final String AUTHORITY = "io.github.yigenhuobah.quietmap.qmreport";
     public static final String PREFS = "qm_report";
 
+    /** Provider 通道最后写入时间；用于和文件兜底的 mtime 比较新旧。 */
+    static final String PREFS_UPDATED_AT = ReportProtocol.PREFS_UPDATED_AT_KEY;
+    /** 主进程最近一次运行的 session；变化时清理旧会话的 reg/skip/hit/entry。 */
+    static final String PREFS_SESSION = ReportProtocol.PREFS_SESSION_KEY;
+
     public static final String PREFIX_REG = ReportProtocol.PREFIX_REG;
     public static final String PREFIX_HIT = ReportProtocol.PREFIX_HIT;
+    public static final String PREFIX_ENTRY = ReportProtocol.PREFIX_ENTRY;
     public static final String PREFIX_SKIP = ReportProtocol.PREFIX_SKIP;
 
     /** 落盘时统一加 "v:" 前缀，避免与旧版本可能存在的同名键冲突。 */
@@ -42,8 +57,40 @@ public final class StatusProvider extends ContentProvider {
 
     private static final int MAX_ITEMS = 800;
 
+    /** Provider.onCreate 在主线程；目录/占位文件 I/O 放到单线程后台初始化。 */
+    private static final ExecutorService FILE_INIT_EXECUTOR =
+            Executors.newSingleThreadExecutor(r -> {
+                Thread t = new Thread(r, "qm-report-init");
+                t.setDaemon(true);
+                return t;
+            });
+
     @Override
     public boolean onCreate() {
+        final Context context = getContext();
+        if (context != null) {
+            // Application.onCreate 通常已经启动；这里再兜底一次，幂等。
+            try {
+                ReportSocketServer.start(context);
+            } catch (Throwable t) {
+                Log.w(TAG, "qmreport socket server start failed", t);
+            }
+        }
+        // 模块 App 进程启动时后台预创建 Android/media/<模块包名>/qm_report.json。
+        // 失败只记日志，不影响 Provider；onCreate 不阻塞主线程。
+        if (context != null) {
+            try {
+                FILE_INIT_EXECUTOR.execute(() -> {
+                    try {
+                        ReportFileReader.ensureSharedFile(context);
+                    } catch (Throwable t) {
+                        Log.w(TAG, "qmreport file sink ensure failed", t);
+                    }
+                });
+            } catch (Throwable t) {
+                Log.w(TAG, "qmreport file sink init submit failed", t);
+            }
+        }
         return true;
     }
 
@@ -71,19 +118,50 @@ public final class StatusProvider extends ContentProvider {
         if (keys.length > MAX_ITEMS) {
             return null;
         }
+        Map<String, String> data = new LinkedHashMap<>();
+        for (int i = 0; i < keys.length; i++) {
+            if (keys[i] != null && values[i] != null) {
+                data.put(keys[i], values[i]);
+            }
+        }
+        applyReport(context, data, extras.getString("session"),
+                extras.getBoolean("main", false), ReportProtocol.SOURCE_PROVIDER);
+        return new Bundle();
+    }
+
+    /**
+     * 诊断数据落到 SharedPreferences 的唯一入口：Provider.call 与
+     * {@link ReportSocketServer} 共用，保证两条通道的合并语义一致
+     * （hit 取历史最大、reg/skip 覆盖、主进程新 session 清理旧数据）。
+     *
+     * @return true 表示实际写入或执行了会话清理；仅记 session 不算。
+     */
+    static synchronized boolean applyReport(Context context, Map<String, String> data,
+                                            String session, boolean mainProcess,
+                                            String source) {
+        if (context == null || data == null || data.size() > MAX_ITEMS) {
+            return false;
+        }
         SharedPreferences sp = context.getSharedPreferences(PREFS, 0);
         SharedPreferences.Editor editor = sp.edit();
-        int accepted = 0;
-        for (int i = 0; i < keys.length; i++) {
-            String key = keys[i];
-            String value = values[i];
+        boolean reset = ReportProtocol.shouldResetSession(
+                sp.getString(PREFS_SESSION, null), session, mainProcess);
+        if (reset) {
+            // 目标 App 主进程已重启：旧会话的 reg/skip/hit 全部作废，
+            // 避免上一轮运行的 skip 永久保留并伪装成新数据。
+            editor.clear();
+        }
+        boolean changed = false;
+        for (Map.Entry<String, String> entry : data.entrySet()) {
+            String key = entry.getKey();
+            String value = entry.getValue();
             if (!ReportProtocol.validKey(key) || !ReportProtocol.isValidValue(value)) {
                 continue;
             }
-            if (key.startsWith(PREFIX_HIT)) {
-                // 命中计数取历史最大值：高德多进程各自回传，取 max 不会重复累加，
-                // 也不会被另一进程的低计数覆盖回去。
-                long prev = sp.getLong(VALUE_PREFIX + key, 0L);
+            if (ReportProtocol.isCountKey(key)) {
+                // 命中/入口计数取历史最大值：高德多进程各自回传，取 max 不会重复累加，
+                // 也不会被另一进程的低计数覆盖回去。新会话从 0 开始。
+                long prev = reset ? 0L : sp.getLong(VALUE_PREFIX + key, 0L);
                 Long next = ReportProtocol.parseHit(value);
                 if (next == null) {
                     continue;
@@ -91,42 +169,104 @@ public final class StatusProvider extends ContentProvider {
                 long merged = ReportProtocol.mergeHit(prev, next);
                 if (merged > prev) {
                     editor.putLong(VALUE_PREFIX + key, merged);
+                    changed = true;
                 }
             } else {
-                editor.putString(VALUE_PREFIX + key, value);
+                String existing = reset ? null
+                        : sp.getString(VALUE_PREFIX + key, null);
+                if (ReportProtocol.valueChanged(key, existing, value)) {
+                    editor.putString(VALUE_PREFIX + key, value);
+                    changed = true;
+                }
             }
-            accepted++;
         }
-        if (accepted > 0) {
+        if (mainProcess && session != null && !session.isEmpty()) {
+            editor.putString(PREFS_SESSION, session);
+        }
+        // 只有实际写入（含会话切换清理）才刷新时间戳；否则旧值不能被“盖上”
+        // 一个当前时间戳而显得新鲜。
+        if (changed) {
+            editor.putLong(PREFS_UPDATED_AT, System.currentTimeMillis());
+        }
+        if (changed || reset) {
+            // 记录最后一个真正写入数据的通道，诊断页据此显示 socket / Provider。
+            editor.putString(ReportProtocol.PREFS_SOURCE_KEY,
+                    source != null ? source : ReportProtocol.SOURCE_PROVIDER);
+        }
+        boolean wrote = changed || reset
+                || (mainProcess && session != null && !session.isEmpty());
+        if (wrote) {
             editor.apply();
         }
-        return new Bundle();
+        return changed || reset;
+    }
+
+    /**
+     * 诊断数据统一读入口：文件优先，Provider/SharedPreferences 兜底。
+     * 文件比 prefs 新（或 prefs 没有时间戳）时使用文件。
+     */
+    public static ReportState readState(Context context) {
+        return ReportFileReader.read(context);
+    }
+
+    /** 只读 SharedPreferences，供 ReportFileReader 做新旧比较与兜底。 */
+    static ReportState providerState(Context context) {
+        if (context == null) {
+            return ReportState.none();
+        }
+        try {
+            SharedPreferences sp = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+            Map<String, ?> all = sp.getAll();
+            Map<String, String> data = new TreeMap<>();
+            for (Map.Entry<String, ?> e : all.entrySet()) {
+                String key = e.getKey();
+                if (key == null || !key.startsWith(VALUE_PREFIX)) {
+                    continue;
+                }
+                Object value = e.getValue();
+                String plain = key.substring(VALUE_PREFIX.length());
+                if (value instanceof String) {
+                    data.put(plain, (String) value);
+                } else if (value instanceof Long) {
+                    data.put(plain, String.valueOf(value));
+                }
+            }
+            long updatedAt = 0L;
+            Object timestamp = all.get(PREFS_UPDATED_AT);
+            if (timestamp instanceof Long) {
+                updatedAt = (Long) timestamp;
+            }
+            Object source = all.get(ReportProtocol.PREFS_SOURCE_KEY);
+            if (ReportProtocol.SOURCE_SOCKET.equals(source)) {
+                return ReportState.fromSocket(data, updatedAt);
+            }
+            return ReportState.fromProvider(data, updatedAt);
+        } catch (Throwable t) {
+            return ReportState.none();
+        }
     }
 
     /** 读取一个回传字符串（reg/skip）；没有数据或读取失败返回 null。 */
     public static String reportString(Context context, String prefix, String key) {
-        try {
-            SharedPreferences sp = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-            return sp.getString(VALUE_PREFIX + prefix + key, null);
-        } catch (Throwable t) {
+        if (context == null) {
             return null;
         }
+        return readState(context).value(prefix, key);
     }
 
     /** 读取命中计数；没有数据或读取失败返回 0。 */
     public static long reportHit(Context context, String key) {
-        try {
-            SharedPreferences sp = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-            return sp.getLong(VALUE_PREFIX + PREFIX_HIT + key, 0L);
-        } catch (Throwable t) {
+        if (context == null) {
             return 0L;
         }
+        return readState(context).hit(key);
     }
 
     /**
      * 统计“已启用且明确失败”的功能数，供异常横幅使用。
      *
-     * 失败判定同时满足：用户配置为开启；目标进程有回传；reg 为空或 skip 非空。
+     * 失败判定同时满足：用户配置为开启；目标进程有回传（reg/skip/hit/entry
+     * 任一非空）；reg 为空或 skip 非空。
      * 没有回传的功能不计入，避免刚装上或目标应用未启动时误报。
      * 只在主进程统计，子进程未装 hook 的 skip 不会被误算（Report 只在主进程回传）。
      */
@@ -141,6 +281,7 @@ public final class StatusProvider extends ContentProvider {
             store = null;
         }
         int failed = 0;
+        ReportState state = readState(context);
         for (Feature f : Feature.values()) {
             if (f.blocked()) {
                 continue;
@@ -150,12 +291,14 @@ public final class StatusProvider extends ContentProvider {
             if (!enabled) {
                 continue;
             }
-            String reg = reportString(context, PREFIX_REG, f.key);
-            String skip = reportString(context, PREFIX_SKIP, f.key);
-            long hit = reportHit(context, f.key);
+            String reg = state.reg(f.key);
+            String skip = state.skip(f.key);
+            long hit = state.hit(f.key);
+            long entry = state.entry(f.key);
             boolean reported = (reg != null && !reg.isEmpty())
                     || (skip != null && !skip.isEmpty())
-                    || hit > 0;
+                    || hit > 0
+                    || entry > 0;
             if (!reported) {
                 continue;
             }

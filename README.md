@@ -2,7 +2,7 @@
 
 让高德地图安静下来的 LSPosed 模块：后台净化、数据层断源、收敛弹窗与统计上报。
 
-> 当前版本 **0.7.0**（2026-10-25，versionCode 8）。
+> 当前版本 **0.8.0**（2026-10-27，versionCode 9）。
 > 目标应用：**高德地图 17.01.0.2012**（`com.autonavi.minimap`）。
 > 与高德地图官方无任何关联，仅供学习、研究和个人设备使用。
 
@@ -21,7 +21,7 @@
 
 ## 安装
 
-1. 安装 `quietmap-0.7.0.apk`。
+1. 安装 `quietmap-0.8.0.apk`。
 2. 在 LSPosed 管理器中启用「静途」，作用域勾选「高德地图」。
 3. 强制停止并重新打开高德地图。
 4. 打开模块 App，确认状态卡显示「已激活」。
@@ -29,7 +29,7 @@
 
 ## 功能
 
-默认值遵循：广告净化（AD）与界面精简（UI）开启，隐私保护（PV）关闭。每项均可单独关闭。
+共 **22 项**功能：**可用 21 项，blocked 1 项（UI-06 消息中心）**。默认值遵循：广告净化（AD）与界面精简（UI）开启，隐私保护（PV）关闭；blocked 项固定关闭且不可切换。每项可用功能均可单独关闭。
 
 ### 广告净化（AD，默认开）
 
@@ -46,8 +46,9 @@
 | AD-09 | `map_float_layer` | 地图运营浮层挂件不注册 |
 | AD-10 | `msg_image_text` | 营销图文消息素材下载断源 |
 | AD-11 | `shake_h5` | H5/小程序摇一摇传感器不注册（保留页面正常振动） |
+| AD-12 | `ops_activity` | 运营活动模块关闭与活动打开入口拦截（真实场景未验证） |
 
-### 界面精简（UI，默认开）
+### 界面精简（UI，默认开；UI-06 blocked 除外）
 
 | ID | key | 功能 |
 |---|---|---|
@@ -55,6 +56,8 @@
 | UI-02 | `home_msg_filter` | 首页消息/红点数据层断源、主图投放与角标红点净化 |
 | UI-03 | `search_hotword` | 搜索热词净化（不影响输入联想） |
 | UI-04 | `popup_clean` | 升级提示配置不下载、首页弹窗冲突队列不入队（中风险，可单关） |
+| UI-05 | `notify_guide` | 通知权限引导条不展示、权限请求参数安全改写（真实场景未验证） |
+| UI-06 | `msg_center` | 消息中心净化（**blocked**：真机消息页列表与角标未被清空，暂不可用） |
 
 ### 隐私保护（PV，默认关）
 
@@ -67,14 +70,24 @@
 
 `popup_clean` 属于中风险项：它拦截的是首页通用弹窗冲突队列，可能连带吞掉功能引导、分享口令等业务弹窗。遇到异常弹窗缺失时单独关闭这一项即可。
 
+### 批 6 功能验证状态
+
+| 功能 | 状态 | 说明 |
+|---|---|---|
+| AD-12 运营活动 | 已注册，真实场景未验证 | 3 个挂载点在真机全部 `registered`，但未触发 88VIP/运营弹窗场景，没有 `ops activity` 命中日志，不宣称已生效 |
+| UI-05 通知权限引导 | 已注册，真实场景未验证 | 3 个挂载点在真机全部 `registered`；通知权限已撤销但 `notify guide` 无命中，无法排除系统频控/`noLongerPrompt`，不宣称已生效 |
+| UI-06 消息中心 | **blocked** | blocked 前的真机验收中 4 个挂载点 `registered`，`hasNewMessage` 已返回 `false`，但消息页仍显示完整列表、顶部角标仍为 14，未达到设计效果；当前版本默认关闭、不注册 hook、UI 置灰 |
+
+`socket` 与 `Provider` 诊断回传的真实状态：目标进程优先尝试抽象命名空间 LocalSocket，失败回退 Provider，再失败写文件。HyperOS 真机上 socket 报 `socket not created`，**不可用**；Provider 通道已实测可用（`transport=provider` 持续刷新），因此 socket 失败不再作为阻断条件。Android 11+ 文件通道仅作调试/旧系统兜底。
+
 ## 设置页
 
-单 Activity、单页分组，无底部导航与侧栏：
+单 Activity + 底部导航 3 tab（设置 / 诊断 / 关于），无侧栏：
 
 - **状态卡**：正在连接框架… / 未激活 / 框架已连接 / 已激活，四态不新增第五态；副文案显示框架 API、目标版本与 remote prefs 可用性。
 - **异常横幅**：目标版本未适配，或已启用且明确失败的功能数 ≥2 时显示；目标应用未安装、只有 1 项失败、没有诊断数据时不显示。
-- **功能开关**：按 AD → UI → PV 分组；标题与摘要来自功能清单，值写入框架 remote prefs。
-- **诊断页**：逐功能显示 `registered · hit N · skip 原因`，无数据显示 `—`；页首显示数据来源与刷新时间，页尾提供「刷新」「复制诊断信息」；进入页面与 `onResume` 刷新，不自动轮询。
+- **功能开关**：按 AD → UI → PV 分组；标题与摘要来自功能清单，值写入框架 remote prefs；blocked 项（UI-06）保留行位但置灰、不可切换。
+- **诊断页**：逐功能显示 `registered · entry N · hit N · skip 原因`，无数据显示 `—`；`entry` 表示钩子入口被调用次数，用于区分“从未调用”和“调用了但未命中”；页首显示数据来源与刷新时间，页尾提供「刷新」「复制诊断信息」；进入页面与 `onResume` 刷新，不自动轮询。
 - **关于页**：模块名、版本名/versionCode、目标应用与适配版本、源码、四模块互链、免责声明、许可证。
 - **页脚**：重启生效与兼容版本提示。
 
@@ -95,7 +108,7 @@
 bash tools/check-mounts.sh "E:\path\to\amap.apk"
 ```
 
-输出 `OK` / `SIG` / `GONE` 三态，共 **53 项**。DexSQL 缓存按 APK sha256 前 16 位隔离（`tools/.dexsql-cache/<sha256>/`），换包不会复用旧缓存；查询失败（dexsql 非 0 退出或结果异常）会直接中止，不会把错误结果当成 0 行而误报 `GONE`。脚本会打印 APK 的 versionName，非 **17.01.0.2012** 时给出 WARN（只提示、不中断）。混淆挂载点（`Lze5#attemptRequestData`、`La8#run`、`Lcx1#addToQueue`、`Llt1#IDeliveryDisplay.start`）随版本改名的风险最高，失效时模块只记 `skip`，不会影响其余钩子。
+输出 `OK` / `SIG` / `GONE` 三态，共 **63 项**。DexSQL 缓存按 APK sha256 前 16 位隔离（`tools/.dexsql-cache/<sha256>/`），换包不会复用旧缓存；查询失败（dexsql 非 0 退出或结果异常）会直接中止，不会把错误结果当成 0 行而误报 `GONE`。脚本会打印 APK 的 versionName，非 **17.01.0.2012** 时给出 WARN（只提示、不中断）。混淆挂载点（`Lze5#attemptRequestData`、`La8#run`、`Lcx1#addToQueue`、`Llt1#IDeliveryDisplay.start`）随版本改名的风险最高，失效时模块只记 `skip`，不会影响其余钩子。
 
 ## 稳定性设计（摘要）
 
@@ -111,6 +124,9 @@ bash tools/check-mounts.sh "E:\path\to\amap.apk"
 
 - `libxposed` 的 `XposedProvider` 在 `SendBinder` 调用上没有调用方认证，属框架约定风险（不影响本模块自身逻辑）。
 - 诊断 Provider 仅接受高德 UID：`Binder.getCallingUid` + `getPackagesForUid` 必须命中 `com.autonavi.minimap`。
+- 诊断回传在 HyperOS 上 socket 不可用（`socket not created`），实际可用的是 Provider 通道；文件通道仅调试/旧系统兜底。socket 失败会回退，不阻断诊断。
+- UI-05 通知权限引导与 AD-12 运营活动已在真机注册挂载点，但真实场景未验证（无命中/未触发），不能视为已生效。
+- UI-06 消息中心在真机失败（消息页列表与角标未被清空），已标记 blocked，不注册 hook。
 - DexKit 扫描仅在主进程启用；非主进程（`:locationservice`、`:widgetProvider`）走类名/方法名兜底。
 - release 缺少 `keystore.properties` 时构建直接失败（`assembleRelease` / `bundleRelease` 抛 `GradleException`），避免产出 debug 签名的正式包。
 
@@ -188,7 +204,7 @@ bash tools/check-mounts.sh
 ```
 
 工具链：AGP 8.13.2 + Gradle wrapper 8.13 + JDK 21（构建），Java source/target 17，compileSdk 37 / minSdk 29 / targetSdk 36。
-release 产物：`app/build/outputs/apk/release/quietmap-0.7.0.apk`（R8 minify + shrinkResources）。
+release 产物：`app/build/outputs/apk/release/quietmap-0.8.0.apk`（R8 minify + shrinkResources）。
 签名读取仓库根目录 `keystore.properties`；缺少该文件时 release 构建直接失败，不会产出用 debug 证书签名的包。
 
 ## GPL 红线

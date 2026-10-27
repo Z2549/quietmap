@@ -1,6 +1,7 @@
 package com.quietmap.app;
 
 import android.app.Activity;
+import android.content.Context;
 import android.content.pm.PackageInfo;
 import android.os.Bundle;
 import android.os.SystemClock;
@@ -32,6 +33,9 @@ public class SettingsFragment extends PreferenceFragmentCompat {
     /** 两次 refresh 的最小间隔，压掉 onCreatePreferences / onResume / 绑定回调三连。 */
     private static final long REFRESH_MIN_INTERVAL_MS = 1000L;
 
+    /** 失败功能数来自 prefs/文件读取，短缓存避免状态卡刷新时重复读盘。 */
+    private static final long BANNER_TTL_MS = 5_000L;
+
     /**
      * 状态卡的框架查询是同步 binder（getApiVersion/getScope/getRunningTargets），
      * 放后台单线程执行，避免框架卡顿时拖住设置页首帧。
@@ -51,6 +55,11 @@ public class SettingsFragment extends PreferenceFragmentCompat {
     private XposedService mLastRefreshService;
     /** 后台状态查询句柄：新查询提交前取消旧的，onDestroyView 取消全部。 */
     private Future<?> mStatusFuture;
+    /** 后台失败功能数查询句柄；与状态卡查询共用单线程执行器。 */
+    private Future<?> mBannerFuture;
+    /** 失败功能数缓存：-1 表示尚未读取。 */
+    private volatile int mFailedCount = -1;
+    private volatile long mFailedCountAt;
     /** versionName 在 Fragment 生命周期内不变，只读一次 PackageManager。 */
     private String mVersionName;
 
@@ -76,6 +85,10 @@ public class SettingsFragment extends PreferenceFragmentCompat {
         if (mStatusFuture != null) {
             mStatusFuture.cancel(true);
             mStatusFuture = null;
+        }
+        if (mBannerFuture != null) {
+            mBannerFuture.cancel(true);
+            mBannerFuture = null;
         }
         // 二级页返回或旋转后 view 会重建：取消过的查询不能靠 1 秒节流挡掉，
         // 否则状态卡可能停在被取消前的旧状态。
@@ -167,7 +180,8 @@ public class SettingsFragment extends PreferenceFragmentCompat {
             Preference p = findPreference(f.key);
             if (p instanceof MaterialSwitchPreference) {
                 MaterialSwitchPreference sw = (MaterialSwitchPreference) p;
-                sw.setCheckedValue(mStore.get(f.key, f.defaultEnabled));
+                // blocked 项即使 remote 里残留 true 也必须显示关闭，避免“不可点击却显示已开启”。
+                sw.setCheckedValue(!f.blocked() && mStore.get(f.key, f.defaultEnabled));
                 // 框架没绑定时写不进去，置灰避免“改了没用”；blocked 始终置灰。
                 sw.setEnabled(writable && !f.blocked());
             }
@@ -242,7 +256,10 @@ public class SettingsFragment extends PreferenceFragmentCompat {
         });
     }
 
-    /** 版本不匹配或 ≥2 个功能失效时显示红色横幅；不新增第五种状态。 */
+    /**
+     * 版本不匹配或 ≥2 个功能失效时显示红色横幅；不新增第五种状态。
+     * 失败功能数需要读 prefs/文件，放后台单线程；主线程只更新 Preference。
+     */
     private void updateBanner() {
         Preference banner = findPreference("warning");
         if (banner == null || getContext() == null) {
@@ -254,22 +271,74 @@ public class SettingsFragment extends PreferenceFragmentCompat {
             banner.setVisible(false);
             return;
         }
-        String message = null;
         if (!VersionGate.isSupported(target)) {
-            message = getString(R.string.status_banner_version, target,
-                    VersionGate.SUPPORTED_VERSION);
+            showBannerMessage(getString(R.string.status_banner_version, target,
+                    VersionGate.SUPPORTED_VERSION));
+            return;
+        }
+        int cached = mFailedCount;
+        long age = SystemClock.elapsedRealtime() - mFailedCountAt;
+        if (cached >= 0 && age >= 0 && age < BANNER_TTL_MS) {
+            applyFailedCount(cached);
+            return;
+        }
+        // 缓存过期/未读：隐藏旧横幅，后台读完再决定是否显示。
+        banner.setVisible(false);
+        loadFailedCountAsync();
+    }
+
+    private void applyFailedCount(int failed) {
+        if (failed >= 2) {
+            showBannerMessage(getString(R.string.status_banner_failed, failed));
         } else {
-            int failed = StatusProvider.failedFeatureCount(requireContext());
-            if (failed >= 2) {
-                message = getString(R.string.status_banner_failed, failed);
+            Preference banner = findPreference("warning");
+            if (banner != null) {
+                banner.setVisible(false);
             }
         }
-        if (message == null) {
-            banner.setVisible(false);
-        } else {
-            banner.setSummary(message);
-            banner.setVisible(true);
+    }
+
+    private void showBannerMessage(String message) {
+        Preference banner = findPreference("warning");
+        if (banner == null) {
+            return;
         }
+        banner.setSummary(message);
+        banner.setVisible(true);
+    }
+
+    private void loadFailedCountAsync() {
+        if (getContext() == null) {
+            return;
+        }
+        final Context app = requireContext().getApplicationContext();
+        final Activity host = requireActivity();
+        if (mBannerFuture != null) {
+            mBannerFuture.cancel(false);
+        }
+        mBannerFuture = STATUS_EXECUTOR.submit(() -> {
+            final int failed;
+            try {
+                failed = StatusProvider.failedFeatureCount(app);
+            } catch (Throwable t) {
+                return;
+            }
+            mFailedCount = failed;
+            mFailedCountAt = SystemClock.elapsedRealtime();
+            if (!isAdded() || getActivity() != host) {
+                return;
+            }
+            host.runOnUiThread(() -> {
+                if (!isAdded() || getActivity() != host) {
+                    return;
+                }
+                // 版本可能在查询期间变化；以最新的版本判断为准。
+                String target = targetVersion();
+                if (target != null && VersionGate.isSupported(target)) {
+                    applyFailedCount(failed);
+                }
+            });
+        });
     }
 
     /** remote prefs 可用性挂在状态卡副标题第二行，抓“开关写不进框架”这个坑。 */

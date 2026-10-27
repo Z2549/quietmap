@@ -1,5 +1,38 @@
 # Changelog
 
+## v0.8.0 — 2026-10-27
+
+批 6 收尾版本（versionCode 9）：新增运营活动与通知权限引导两个净化开关；消息中心因真机未通过标记为 blocked；诊断回传补入口计数，并确认 Provider 通道可用。
+
+### 新增
+
+- **AD-12 运营活动弹窗净化**（默认开）：`AppInitServiceImpl#getOperationModuleSwitch` 返回 false，`ActivitiesService#openOpetationsActivities` 3 参/4 参重载不调用。真机 3 个挂载点全部 registered，但未触发运营弹窗场景，实际效果**未验证**。
+- **UI-05 通知权限引导净化**（默认开）：`PermissionGuideFloatShow#showNotificationGuide` 与 `SysPermissionGuideFloatMode#showFloatWithSysCore` 在命中通知权限时不展示；`so2#i` 仅在单一通知权限且定位已授权时把 permissionType 改写为 `location`，否则原样放行。真机 3 个挂载点全部 registered，但 `notify guide` 无 hit，未观察到通知横条也无法归因，实际效果**未验证**。
+- **入口计数（entry）诊断**：`HookState.entry` 经 `Report` 上报 `entry.<key>`，诊断页显示 `registered · entry N · hit N · skip`，用于区分“从未调用”和“调用了但未命中”。上报键由 66 个增至 88 个；Provider/文件/合并规则对 entry 与 hit 一致（非负计数取最大值）。
+- **诊断回传 socket 通道**：目标进程优先走抽象命名空间 LocalSocket，失败回退 Provider，再失败写文件。真机 HyperOS 上 socket 报 `socket not created`（SELinux/系统限制），**不可用**；Provider 通道已实测可用（`transport=provider` 持续刷新），因此 socket 失败不再作为阻断条件。
+
+### 变更
+
+- **UI-06 消息中心净化标记 blocked**（默认关、UI 置灰且固定显示关闭、不注册 hook）：blocked 前的真机验收中 4 个挂载点全部 registered，`hasNewMessage` 已返回 `false`，但消息页仍显示完整列表、顶部角标仍为 14，未达到设计效果。保留编号与行位，待重新逆向 AJX 消息页数据链路后再启用。
+- `Hooks` 不再注册 `MsgCenterHooks`；`Batch6Probe.DEBUG_PROBE` 固定为 `false`，release 与日常 debug 都不安装探针。
+- 功能总数 22 项：**可用 21、blocked 1**；挂载点 63 项。
+- 诊断页摘要与异常横幅统计纳入 entry；仅 entry 回传也算“已回传”。
+
+### 验证
+
+- 单测 157 个用例通过（`:app:testDebugUnitTest`）；`:app:lintDebug`、`assembleDebug`、`assembleRelease` 通过。
+- `tools/verify-apk.sh` 通过；`tools/check-mounts.sh` 对高德 17.01.0.2012 共 63 项，结果见下方记录。
+- 真机（25102RKBEC / Android 17 / LSPosed 2.2.1 / 高德 17.01.0.2012）：
+  - Provider 诊断回传通过，诊断页能取到 reg/hit/entry 数据；socket 在 HyperOS 不可用，文件通道仅作调试兜底。
+  - UI-05 / AD-12：挂载点 registered，真实场景未验证（无 hit / 未触发），**不宣称生效**。
+  - UI-06：真机失败，已 blocked；最终包确认设置项置灰、不注册 hook，消息页保持原始行为。
+- 本轮未做 UI-05/AD-12 的完整真机视觉回归；需在通知频控重置、运营弹窗可触发时复验。
+
+APK: `quietmap-0.8.0.apk`
+versionCode: `9`
+大小: `4,068,476 字节`
+SHA-256: `27a9697875e4ea7b450efb4097da2579b21102efb65981a1759eea739edeb90e`
+
 ## v0.7.0 — 2026-10-25
 
 工程质量版本（versionCode 8）：工程基建、依赖基线与 UI 骨架升级，**无新增净化功能**。

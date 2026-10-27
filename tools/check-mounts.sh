@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 挂载点体检：高德升级后跑这个，30 秒内知道十九个钩子的挂载点还活着几个。
+# 挂载点体检：高德升级后跑这个，30 秒内知道二十二个钩子的挂载点还活着几个。
 #
 # 用法（Git Bash / Linux / macOS）：
 #   bash tools/check-mounts.sh [APK路径] [--apk APK] [--dexsql PATH] [--aapt2 PATH]
@@ -28,7 +28,7 @@
 #   GONE = 类不存在了（R8/升级改了名），需要重新定位
 #   SIG  = 类还在但方法签名变了（改名 / 参数变化），看差异再决定
 #
-# 挂载点清单（共 53 条）与 app/src/main/java/com/quietmap/app/hooks/ 下的常量一一对应，
+# 挂载点清单（共 63 条）与 app/src/main/java/com/quietmap/app/hooks/ 下的常量一一对应，
 # 完整签名取自 dexsql 对高德 17.01.0.2012 的实测。
 # 混淆类挂载点（Lze5#attemptRequestData、La8#run）另有方法体字符串锚点监控：
 # 签名在但锚点串丢了也判 SIG（运行时 DexKit 按锚点定位会失败）。
@@ -370,7 +370,17 @@ Lcom/autonavi/nebulax/extensions/point/AMapAppStartShakePoint;->onInitialized()V
 Lcom/autonavi/nebulax/utils/SensorManagerHelper;->onSensorChanged(Landroid/hardware/SensorEvent;)V|shake_h5 摇一摇监听回调
 Lcom/autonavi/minimap/bundle/msgbox/util/MessageBoxManager;->handlePush(Ljava/lang/String;)V|bg_msg_fetch 推送消息处理入口
 Lcom/autonavi/minimap/bundle/msgbox/push/BackgroundMsgManager;->a(Lcom/autonavi/minimap/bundle/msgbox/push/IBackgroundMsgFetchListener;)V|bg_msg_fetch 后台营销消息拉取
-Lcom/autonavi/minimap/bundle/msgbox/util/MessageBoxManager;->fetchMessageFromMainMap(IZLcom/autonavi/minimap/bundle/msgbox/api/IMsgboxService$MainMapUIUpdater;)V|bg_msg_fetch 主图消息拉取包装'
+Lcom/autonavi/minimap/bundle/msgbox/util/MessageBoxManager;->fetchMessageFromMainMap(IZLcom/autonavi/minimap/bundle/msgbox/api/IMsgboxService$MainMapUIUpdater;)V|bg_msg_fetch 主图消息拉取包装
+Lcom/amap/bundle/cloudconfig/appinit/AppInitServiceImpl;->getOperationModuleSwitch(Z)Z|ops_activity 运营活动模块开关(return false)
+Lcom/autonavi/minimap/bundle/activities/ActivitiesService;->openOpetationsActivities(Lcom/autonavi/map/fragmentcontainer/page/AbstractBasePage;Ljava/lang/String;Ljava/lang/String;)V|ops_activity 活动打开入口(3参)
+Lcom/autonavi/minimap/bundle/activities/ActivitiesService;->openOpetationsActivities(Lcom/autonavi/map/fragmentcontainer/page/AbstractBasePage;Ljava/lang/String;Ljava/lang/String;Z)V|ops_activity 活动打开入口(4参重载)
+Lcom/alipay/android/phone/mobilesdk/permission/guide/PermissionGuideFloatShow;->showNotificationGuide(Lcom/alipay/android/phone/mobilesdk/permission/guide/PermissionGuideRequest;)V|notify_guide 通知权限底部浮条(不展示)
+Lcom/alipay/android/phone/mobilesdk/permission/guide/sys/SysPermissionGuideFloatMode;->showFloatWithSysCore()V|notify_guide 系统浮条(仅通知权限跳过)
+Lso2;->i(Landroid/app/Activity;Lorg/json/JSONObject;Ljava/lang/String;)V|notify_guide 权限请求参数桥(permissionType改写)
+Lcom/autonavi/bundle/msgbox/ajx/MessageBoxServiceImpl;->getOnlineData(Lcom/autonavi/bundle/msgbox/ajx/IGetMessageCallback;Ljava/lang/String;)V|msg_center 在线消息空数据回调
+Lcom/autonavi/minimap/bundle/msgbox/impl/MsgboxService;->getNewComingUnRead_MsgNumFromDB()I|msg_center 未读角标归零
+Lcom/autonavi/minimap/bundle/msgbox/util/MessageBoxManager;->getAllLocalMessages()Ljava/util/ArrayList;|msg_center 本地消息列表清空
+Lcom/autonavi/bundle/msgbox/ajx/ModuleMessageBox;->hasNewMessage(Lcom/autonavi/minimap/ajx3/core/JsFunctionCallback;)V|msg_center AJX新消息桥(回调"0")'
 
 echo
 echo "APK: $TARGET_APK"
@@ -454,7 +464,7 @@ total=$((ok + sig + gone))
 echo
 echo "汇总: 共 $total 项 — OK $ok / SIG $sig / GONE $gone"
 if [ "$sig" -eq 0 ] && [ "$gone" -eq 0 ]; then
-  echo "十九钩子挂载点全部存活。"
+  echo "二十二钩子挂载点全部存活。"
 else
   echo "OK=还在；SIG=类在但签名/锚点变了；GONE=类没了。变的项要重新用 dexsql 定位。"
 fi

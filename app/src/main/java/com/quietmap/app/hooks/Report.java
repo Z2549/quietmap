@@ -7,42 +7,77 @@ import android.util.Log;
 
 import com.quietmap.app.Feature;
 import com.quietmap.app.HookState;
+import com.quietmap.app.ReportSocketProtocol;
 import com.quietmap.app.StatusProvider;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 目标进程 → 模块 App 的诊断回传（registered / hit N / skip）。
+ * 目标进程 → 模块 App 的诊断回传（registered / entry N / hit N / skip）。
  *
- * 照 AbReportProvider 跨进程模式：hook 侧只能主动 call 进模块的 ContentProvider
- * （remote prefs 在目标进程只读）。Context 用 ActivityThread 反射拿——
- * 框架类黑名单禁止 hook android.app.Application，不能像别处那样挂 onCreate 兜底，
- * 好在 onPackageReady 之后 Application 很快可用，拿不到就等下一轮刷新。
+ * HyperOS 上 ContentResolver.call 抛 Unknown authority，Provider 不可用；
+ * Android 11+ 模块 App 也读不到目标进程写的 Android/media 文件。因此主通道改为
+ * 抽象命名空间 LocalSocket（见 ReportSocketSink / ReportSocketServer）：
+ * 不依赖存储权限，也不受包可见性影响。通道顺序固定为
+ * socket → Provider → 文件，前一条成功即停止；日志统一带 transport=。
  *
  * 节流：后台单线程每 3 秒把 HookState 快照打平上报一次，内容没变不发；
- * provider 不可达时退避 60 秒，不刷日志。
+ * 三条通道全部失败时退避 60 秒，不刷日志。socket/Provider 都是进程外通道，
+ * 即使快照没变也每 60 秒重发一次：主进程重启会清空 prefs 里旧 session 的数据，
+ * 子进程的 sLast 去重必须靠这次心跳把数据补回来。去重条件同时包含 session。
+ *
+ * 文件通道已降级为调试/旧系统兜底：只有 socket 与 Provider 都失败时才写，
+ * 并且仍受 45 秒变化节流 / 5 分钟心跳限制。Android 11+ 通常不可用。
+ *
+ * session：每个目标进程启动时生成一个 UUID，随快照一起写入。同一 session
+ * 的旧文件才合并，不同 session 直接替换，避免旧 skip/reg 被盖上当前时间戳。
+ * 主进程会把 session/是否主进程一并回传，供服务端在新会话开始时清理旧数据；
+ * 子进程只做 max-hit 合并，不触发清理。
  */
 final class Report {
 
     private static final String TAG = "QuietMap";
     private static final int MAX_VALUE = 256;
 
+    /** socket/Provider 内容未变化时的强制重发周期（兜底主进程清理后的子进程数据）。 */
+    static final long TRANSPORT_HEARTBEAT_MS = 60_000L;
+    /** 三条通道全部失败后的退避。 */
+    static final long TRANSPORT_RETRY_MS = 60_000L;
+
+    /** 快照未变化时的文件心跳周期：至少每 5 分钟重写一次。 */
+    static final long FILE_HEARTBEAT_MS = 5 * 60_000L;
+    /** 快照变化后的常规文件写入最小间隔，避免命中计数每 3 秒刷盘。 */
+    static final long FILE_MIN_INTERVAL_MS = 45_000L;
+
+    /** 本进程运行的唯一标识；跨进程写同一文件时用于判断是否合并。 */
+    static final String SESSION = UUID.randomUUID().toString();
+
     private static volatile boolean sStarted;
+    private static volatile boolean sMainProcess = true;
     private static volatile Context sContext;
     private static volatile Map<String, String> sLast = new TreeMap<>();
+    private static volatile String sLastSession;
+    private static volatile long sLastSentAt;
+    private static volatile Map<String, String> sLastFile = new TreeMap<>();
     private static volatile long sNextTry;
+    private static volatile long sNextFileTry;
+    private static volatile long sLastFileWriteMs;
+    private static volatile String sLastTransport;
+    private static volatile long sLastTransportLog;
     private static volatile int sErrors;
 
     private Report() {
     }
 
-    static synchronized void start() {
+    static synchronized void start(boolean mainProcess) {
+        sMainProcess = mainProcess;
         if (sStarted) {
             return;
         }
@@ -62,16 +97,94 @@ final class Report {
 
     private static void flush() {
         Map<String, String> batch = snapshot();
-        if (batch.isEmpty() || batch.equals(sLast)) {
+        long now = System.currentTimeMillis();
+        if (!shouldSend(batch, sLast, SESSION, sLastSession, now, sLastSentAt)) {
             return;
         }
-        long now = System.currentTimeMillis();
         if (now < sNextTry) {
             return;
         }
+        String json = ReportSocketProtocol.message(now, SESSION, sMainProcess, batch);
+        String used = deliver(
+                () -> ReportSocketSink.write(json),
+                () -> sendProvider(batch),
+                () -> sendFile(batch, now));
+        if ("socket".equals(used) || "provider".equals(used)) {
+            sLast = batch;
+            sLastSession = SESSION;
+            sLastSentAt = now;
+            sNextTry = 0L;
+            logTransport(used, batch.size(), now);
+            return;
+        }
+        // socket + Provider 都失败：文件仅是调试兜底，不更新 sLast；60 秒后重试网络通道。
+        sNextTry = now + TRANSPORT_RETRY_MS;
+        logTransport(used != null ? used : "none", batch.size(), now);
+    }
+
+    /**
+     * 是否值得发起一轮上报。内容变化、session 变化（新进程/热重载）、或距上次
+     * 成功超过 {@link #TRANSPORT_HEARTBEAT_MS} 都返回 true——最后一条用于把
+     * 主进程新 session 清理掉的子进程数据补回去。
+     */
+    static boolean shouldSend(Map<String, String> batch, Map<String, String> last,
+                              String session, String lastSession,
+                              long now, long lastSentAt) {
+        if (batch == null || batch.isEmpty()) {
+            return false;
+        }
+        if (!batch.equals(last)) {
+            return true;
+        }
+        if (session == null || !session.equals(lastSession)) {
+            return true;
+        }
+        if (lastSentAt <= 0L || now < lastSentAt) {
+            return true;
+        }
+        return now - lastSentAt >= TRANSPORT_HEARTBEAT_MS;
+    }
+
+    /** 单通道发送动作；JVM 单测用它验证 socket → Provider → 文件的短路顺序。 */
+    interface Channel {
+        boolean send() throws Throwable;
+    }
+
+    /**
+     * 固定通道顺序：socket 成功立即返回，不再调用 Provider/文件；socket 失败才
+     * 尝试 Provider；Provider 失败才写文件。单个通道抛异常按失败处理并继续。
+     *
+     * @return 实际成功的通道名，全部失败返回 null。
+     */
+    static String deliver(Channel socket, Channel provider, Channel file) {
+        if (trySend(socket)) {
+            return "socket";
+        }
+        if (trySend(provider)) {
+            return "provider";
+        }
+        if (trySend(file)) {
+            return "file";
+        }
+        return null;
+    }
+
+    private static boolean trySend(Channel channel) {
+        if (channel == null) {
+            return false;
+        }
+        try {
+            return channel.send();
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    /** Provider 通道；返回 true 表示 call() 正常返回。 */
+    private static boolean sendProvider(Map<String, String> batch) {
         Context context = context();
         if (context == null) {
-            return;
+            return false;
         }
         List<String> keys = new ArrayList<>(batch.keySet());
         List<String> values = new ArrayList<>();
@@ -81,30 +194,94 @@ final class Report {
         Bundle extras = new Bundle();
         extras.putStringArray("keys", keys.toArray(new String[0]));
         extras.putStringArray("values", values.toArray(new String[0]));
+        extras.putString("session", SESSION);
+        extras.putBoolean("main", sMainProcess);
         try {
             Bundle result = context.getContentResolver().call(
                     Uri.parse("content://" + StatusProvider.AUTHORITY), "report", null, extras);
             if (result != null) {
-                sLast = batch;
-                return;
+                return true;
             }
-            // call() 返回 null 视为 provider 暂不可达：与抛异常一样退避 60 秒，
-            // 不更新 sLast，下次内容变化或退避到期后再试。
-            sNextTry = System.currentTimeMillis() + 60_000L;
+            // call() 返回 null 视为 provider 暂不可达：不更新 sLast，60 秒后再试。
             if (sErrors++ < 3) {
-                Log.w(TAG, "report provider returned null");
+                Log.w(TAG, "qmreport transport=provider failed: call returned null");
             }
         } catch (Throwable t) {
-            // 模块 App 未启动、被系统拦截等情况：一分钟后再试，别每 3 秒刷日志。
-            sNextTry = System.currentTimeMillis() + 60_000L;
+            // 模块 App 未启动、被系统拦截等情况：不刷日志，交给外层退避。
             if (sErrors++ < 3) {
-                Log.w(TAG, "report provider unavailable", t);
+                Log.w(TAG, "qmreport transport=provider failed: " + describe(t));
             }
         }
+        return false;
     }
 
-    /** HookState 快照 → 平铺的 key/value（key 用 reg./hit./skip. 前缀，value 截断到 256）。 */
-    private static Map<String, String> snapshot() {
+    /** 文件调试兜底：仅 socket/Provider 都失败后调用，保留原节流规则。 */
+    private static boolean sendFile(Map<String, String> batch, long now) {
+        boolean changed = !batch.equals(sLastFile);
+        if (!fileWriteDue(changed, now, sLastFileWriteMs)) {
+            return false;
+        }
+        if (now < sNextFileTry) {
+            return false;
+        }
+        Context context = context();
+        if (context == null) {
+            return false;
+        }
+        try {
+            if (ReportFileSink.write(context, batch, SESSION)) {
+                sLastFile = batch;
+                sLastFileWriteMs = now;
+                return true;
+            }
+            sNextFileTry = now + TRANSPORT_RETRY_MS;
+        } catch (Throwable t) {
+            sNextFileTry = now + TRANSPORT_RETRY_MS;
+            Log.w(TAG, "qmreport transport=file failed: " + describe(t));
+        }
+        return false;
+    }
+
+    /** 成功通道变化或每 60 秒记一条，真机可直接 grep transport=。 */
+    private static void logTransport(String transport, int keys, long now) {
+        if (transport.equals(sLastTransport)
+                && now >= sLastTransportLog
+                && now - sLastTransportLog < 60_000L) {
+            return;
+        }
+        sLastTransport = transport;
+        sLastTransportLog = now;
+        Log.i(TAG, "qmreport transport=" + transport + " keys=" + keys);
+    }
+
+    private static String describe(Throwable t) {
+        if (t == null) {
+            return "null";
+        }
+        String message = t.getMessage();
+        return t.getClass().getSimpleName() + (message != null ? ": " + message : "");
+    }
+
+    /**
+     * 文件写入时机：首次立即写；快照变化后至少间隔 45 秒；未变化时每 5 分钟
+     * 心跳重写。时钟回拨（now < last）时允许一次，避免永久停写。
+     */
+    static boolean fileWriteDue(boolean changed, long now, long lastWriteMs) {
+        if (lastWriteMs <= 0L) {
+            return true;
+        }
+        long age = now - lastWriteMs;
+        if (age < 0L) {
+            return true;
+        }
+        return age >= (changed ? FILE_MIN_INTERVAL_MS : FILE_HEARTBEAT_MS);
+    }
+
+    /**
+     * HookState 快照 → 平铺的 key/value（key 用 reg./hit./entry./skip. 前缀，
+     * value 截断到 256）。
+     */
+    static Map<String, String> snapshot() {
         Map<String, String> out = new TreeMap<>();
         for (Feature f : HookState.touched()) {
             List<String> labels = HookState.labels(f);
@@ -114,6 +291,10 @@ final class Report {
             long hits = HookState.hitCount(f);
             if (hits > 0) {
                 out.put(StatusProvider.PREFIX_HIT + f.key, String.valueOf(hits));
+            }
+            long entries = HookState.entryCount(f);
+            if (entries > 0) {
+                out.put(StatusProvider.PREFIX_ENTRY + f.key, String.valueOf(entries));
             }
             String skip = HookState.skipReason(f);
             if (skip != null) {

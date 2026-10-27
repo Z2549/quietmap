@@ -43,6 +43,12 @@
     <string name="diag_title">诊断</string>
     <string name="diag_header">数据来自目标进程回传 · 刷新时间 %1$s</string>
     <string name="diag_hint">registered=挂载成功，hit=命中次数，skip=跳过原因</string>
+    <string name="diag_source_file">数据来源：文件兜底 · 最后更新 %1$s</string>
+    <string name="diag_source_file_stale">数据来源：最近一次文件数据（已过期）· 最后更新 %1$s</string>
+    <string name="diag_source_provider">数据来源：Provider · 最后更新 %1$s</string>
+    <string name="diag_source_socket">数据来源：socket · 最后更新 %1$s</string>
+    <string name="diag_source_none">数据来源：无（目标进程尚未回传）</string>
+    <string name="diag_source_path">文件路径：%1$s</string>
     <string name="diag_empty_title">暂无诊断数据</string>
     <string name="diag_empty">启动%1$s后重新进入本页</string>
     <string name="diag_refresh">刷新</string>
@@ -93,6 +99,12 @@
     <string name="f_track_suppress_summary">不发送开屏曝光/点击埋点与 UT 统计事件（纯统计，不影响地图功能）</string>
     <string name="f_shake_h5_title">H5 与小程序摇一摇净化</string>
     <string name="f_shake_h5_summary">不注册 H5/小程序摇一摇传感器，保留页面正常振动反馈</string>
+    <string name="f_ops_activity_title">运营活动弹窗净化</string>
+    <string name="f_ops_activity_summary">关闭运营活动模块并拦截活动打开入口，打车页 88VIP 等运营弹窗不再出现；会连带屏蔽导航结束页的加油/停车活动，可单独关闭</string>
+    <string name="f_notify_guide_title">通知权限引导净化</string>
+    <string name="f_notify_guide_summary">不展示「开启通知权限/开启推送通知」顶部条与底部浮条；只拦通知权限，定位、相机等权限引导保持原样</string>
+    <string name="f_msg_center_title">消息中心净化</string>
+    <string name="f_msg_center_summary">消息页不再展示营销分类列表，未读角标归零；账号安全、公交动态等真实通知也会一并隐藏，可单独关闭</string>
 
     <!-- 关于页 -->
     <string name="about_title">关于</string>

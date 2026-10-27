@@ -8,7 +8,7 @@ import static org.junit.Assert.assertTrue;
 import org.junit.Test;
 
 /**
- * StatusProvider 的纯 Java 协议规则：键白名单、值长度、hit 最大值合并。
+ * StatusProvider 的纯 Java 协议规则：键白名单、值长度、hit/entry 计数最大值合并。
  * 这些规则决定跨进程写入 prefs 的边界，改动必须同步更新本测试。
  */
 public class ReportProtocolTest {
@@ -17,29 +17,33 @@ public class ReportProtocolTest {
     public void validKeyAcceptsRepresentativePrefixes() {
         assertTrue(ReportProtocol.validKey("reg.splash_gate"));
         assertTrue(ReportProtocol.validKey("hit.bg_msg_fetch"));
+        assertTrue(ReportProtocol.validKey("entry.bg_msg_fetch"));
         assertTrue(ReportProtocol.validKey("skip.shake_h5"));
     }
 
     @Test
-    public void validKeyAcceptsAll57GeneratedKeys() {
+    public void validKeyAcceptsAll88GeneratedKeys() {
         int count = 0;
         for (Feature f : Feature.values()) {
             assertTrue(ReportProtocol.validKey(ReportProtocol.PREFIX_REG + f.key));
             assertTrue(ReportProtocol.validKey(ReportProtocol.PREFIX_HIT + f.key));
+            assertTrue(ReportProtocol.validKey(ReportProtocol.PREFIX_ENTRY + f.key));
             assertTrue(ReportProtocol.validKey(ReportProtocol.PREFIX_SKIP + f.key));
-            count += 3;
+            count += 4;
         }
-        assertEquals(57, count);
+        assertEquals(88, count);
     }
 
     @Test
     public void validKeyRejectsUnknownKeys() {
         assertFalse(ReportProtocol.validKey("foo"));
         assertFalse(ReportProtocol.validKey("hit.not_a_feature"));
+        assertFalse(ReportProtocol.validKey("entry.not_a_feature"));
         assertFalse(ReportProtocol.validKey("hit." + "x".repeat(125)));
         assertFalse(ReportProtocol.validKey(null));
         assertFalse(ReportProtocol.validKey(""));
         assertFalse(ReportProtocol.validKey("REG.splash_gate"));
+        assertFalse(ReportProtocol.validKey("ENTRY.splash_gate"));
         assertFalse(ReportProtocol.validKey("reg.splash_gate "));
     }
 
@@ -57,6 +61,15 @@ public class ReportProtocolTest {
     }
 
     @Test
+    public void countKeysCoverHitAndEntryOnly() {
+        assertTrue(ReportProtocol.isCountKey("hit.splash_gate"));
+        assertTrue(ReportProtocol.isCountKey("entry.splash_gate"));
+        assertFalse(ReportProtocol.isCountKey("reg.splash_gate"));
+        assertFalse(ReportProtocol.isCountKey("skip.splash_gate"));
+        assertFalse(ReportProtocol.isCountKey(null));
+    }
+
+    @Test
     public void isValidValueRejectsNullAndOversizedValues() {
         assertTrue(ReportProtocol.isValidValue(""));
         assertTrue(ReportProtocol.isValidValue("a".repeat(256)));
@@ -68,6 +81,7 @@ public class ReportProtocolTest {
     public void validKeyRejectsPrefixOnlyAndBoundaryLengths() {
         assertFalse(ReportProtocol.validKey(ReportProtocol.PREFIX_REG));
         assertFalse(ReportProtocol.validKey(ReportProtocol.PREFIX_HIT));
+        assertFalse(ReportProtocol.validKey(ReportProtocol.PREFIX_ENTRY));
         assertFalse(ReportProtocol.validKey(ReportProtocol.PREFIX_SKIP));
         // 128 字符恰好等于上限但不在白名单；129 与超长输入同样拒绝。
         assertFalse(ReportProtocol.validKey("reg." + "a".repeat(ReportProtocol.MAX_KEY - 4)));
@@ -105,5 +119,39 @@ public class ReportProtocolTest {
         assertEquals(9L, ReportProtocol.mergeHit(2L, ReportProtocol.mergeHit(9L, 4L)));
         assertEquals(Long.MAX_VALUE, ReportProtocol.mergeHit(Long.MAX_VALUE, 1L));
         assertEquals(Long.MAX_VALUE, ReportProtocol.mergeHit(1L, Long.MAX_VALUE));
+    }
+
+    @Test
+    public void resetSessionOnlyForNewMainProcessSession() {
+        assertTrue(ReportProtocol.shouldResetSession(null, "s1", true));
+        assertTrue(ReportProtocol.shouldResetSession("s0", "s1", true));
+        assertFalse("同一会话不清理", ReportProtocol.shouldResetSession("s1", "s1", true));
+        assertFalse("子进程不能清空其他进程数据",
+                ReportProtocol.shouldResetSession("s0", "s1", false));
+        assertFalse("没有 session 的旧客户端不清理",
+                ReportProtocol.shouldResetSession("s0", null, true));
+        assertFalse(ReportProtocol.shouldResetSession("s0", "", true));
+    }
+
+    @Test
+    public void valueChangedOnlyWhenActuallyWritten() {
+        assertTrue(ReportProtocol.valueChanged("reg.a", null, "x"));
+        assertFalse(ReportProtocol.valueChanged("reg.a", "x", "x"));
+        assertTrue(ReportProtocol.valueChanged("reg.a", "x", "y"));
+        assertFalse("skip 相同不应刷新时间戳",
+                ReportProtocol.valueChanged("skip.a", "old", "old"));
+        assertTrue(ReportProtocol.valueChanged("hit.a", "3", "5"));
+        assertFalse("hit 变小不写", ReportProtocol.valueChanged("hit.a", "5", "3"));
+        assertFalse("hit 非法不写", ReportProtocol.valueChanged("hit.a", "5", "bad"));
+        assertTrue(ReportProtocol.valueChanged("hit.a", null, "1"));
+        // entry 与 hit 共用同一套非负计数规则。
+        assertTrue(ReportProtocol.valueChanged("entry.a", "3", "5"));
+        assertFalse("entry 变小不写", ReportProtocol.valueChanged("entry.a", "5", "3"));
+        assertFalse("entry 负数不写", ReportProtocol.valueChanged("entry.a", "5", "-1"));
+        assertFalse("entry 非法不写",
+                ReportProtocol.valueChanged("entry.a", "5", "bad"));
+        assertFalse("entry 溢出按非法处理", ReportProtocol.valueChanged(
+                "entry.a", "5", "9223372036854775808"));
+        assertTrue(ReportProtocol.valueChanged("entry.a", null, "1"));
     }
 }

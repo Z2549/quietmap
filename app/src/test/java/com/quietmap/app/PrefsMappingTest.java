@@ -62,13 +62,13 @@ public class PrefsMappingTest {
     }
 
     @Test
-    public void allNineteenFeaturesPresent() {
-        assertEquals("Feature 数量必须是 19（实际解析路径: "
+    public void allTwentyTwoFeaturesPresent() {
+        assertEquals("Feature 数量必须是 22（实际解析路径: "
                         + prefsFile.getAbsolutePath() + "）",
-                19, Feature.values().length);
-        assertEquals("19 个 Feature key 必须全部出现在 prefs.xml 中（实际解析路径: "
+                22, Feature.values().length);
+        assertEquals("22 个 Feature key 必须全部出现在 prefs.xml 中（实际解析路径: "
                         + prefsFile.getAbsolutePath() + "）",
-                19, featureKeysInXml().size());
+                22, featureKeysInXml().size());
     }
 
     @Test

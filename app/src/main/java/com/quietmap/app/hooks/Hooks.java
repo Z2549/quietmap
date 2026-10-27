@@ -54,6 +54,8 @@ public final class Hooks {
         m.put(Feature.POPUP_CLEAN, PopupCleanHooks::install);
         m.put(Feature.TRACK_SUPPRESS, TrackSuppressHooks::install);
         m.put(Feature.SHAKE_H5, ShakeH5Hooks::install);
+        m.put(Feature.OPS_ACTIVITY, OpsActivityHooks::install);
+        m.put(Feature.NOTIFY_GUIDE, NotifyGuideHooks::install);
         INSTALLERS = Collections.unmodifiableMap(m);
     }
 
@@ -94,7 +96,7 @@ public final class Hooks {
             module.log(Log.INFO, TAG, "all features disabled, nothing to hook");
             return;
         }
-        Report.start();
+        Report.start(mainProcess);
         for (Feature f : Feature.values()) {
             if (!shouldInstall(f, config.enabled(f))) {
                 if (f.blocked()) {
