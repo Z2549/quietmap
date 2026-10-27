@@ -180,7 +180,8 @@ public class SettingsFragment extends PreferenceFragmentCompat {
             Preference p = findPreference(f.key);
             if (p instanceof MaterialSwitchPreference) {
                 MaterialSwitchPreference sw = (MaterialSwitchPreference) p;
-                sw.setCheckedValue(mStore.get(f.key, f.defaultEnabled));
+                // blocked 项即使 remote 里残留 true 也必须显示关闭，避免“不可点击却显示已开启”。
+                sw.setCheckedValue(!f.blocked() && mStore.get(f.key, f.defaultEnabled));
                 // 框架没绑定时写不进去，置灰避免“改了没用”；blocked 始终置灰。
                 sw.setEnabled(writable && !f.blocked());
             }

@@ -103,11 +103,13 @@ public class ReportFileStoreTest {
     }
 
     @Test
-    public void filtersUnknownKeysAndMalformedHits() throws Exception {
+    public void filtersUnknownKeysAndMalformedCounts() throws Exception {
         long now = System.currentTimeMillis();
         Map<String, String> data = new TreeMap<>();
         data.put("foo", "x");
         data.put("hit.splash_gate", "not-a-number");
+        data.put("entry.splash_gate", "not-a-number");
+        data.put("entry.bg_msg_fetch", "4");
         data.put("reg.splash_gate", "canShowSplash");
         data.put("skip.splash_gate", "ok");
         File file = write("filter.json", ReportSnapshot.toJson(now, data));
@@ -115,9 +117,21 @@ public class ReportFileStoreTest {
         ReportFileStore.Entry entry = ReportFileStore.read(
                 file, now, ReportFileStore.MAX_AGE_MS);
         assertNotNull(entry);
-        assertEquals(2, entry.snapshot.data().size());
+        assertEquals(3, entry.snapshot.data().size());
         assertEquals("canShowSplash", entry.snapshot.data().get("reg.splash_gate"));
         assertEquals("ok", entry.snapshot.data().get("skip.splash_gate"));
+        assertEquals("4", entry.snapshot.data().get("entry.bg_msg_fetch"));
+    }
+
+    @Test
+    public void entryOnlySnapshotIsValidData() throws Exception {
+        long now = System.currentTimeMillis();
+        File file = write("entry-only.json", json(now, "entry.splash_gate", "2"));
+
+        ReportFileStore.Entry entry = ReportFileStore.read(
+                file, now, ReportFileStore.MAX_AGE_MS);
+        assertNotNull("只有 entry 的快照不能被当作无数据", entry);
+        assertEquals("2", entry.snapshot.data().get("entry.splash_gate"));
     }
 
     @Test

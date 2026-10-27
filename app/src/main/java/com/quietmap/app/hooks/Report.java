@@ -20,7 +20,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 目标进程 → 模块 App 的诊断回传（registered / hit N / skip）。
+ * 目标进程 → 模块 App 的诊断回传（registered / entry N / hit N / skip）。
  *
  * HyperOS 上 ContentResolver.call 抛 Unknown authority，Provider 不可用；
  * Android 11+ 模块 App 也读不到目标进程写的 Android/media 文件。因此主通道改为
@@ -277,8 +277,11 @@ final class Report {
         return age >= (changed ? FILE_MIN_INTERVAL_MS : FILE_HEARTBEAT_MS);
     }
 
-    /** HookState 快照 → 平铺的 key/value（key 用 reg./hit./skip. 前缀，value 截断到 256）。 */
-    private static Map<String, String> snapshot() {
+    /**
+     * HookState 快照 → 平铺的 key/value（key 用 reg./hit./entry./skip. 前缀，
+     * value 截断到 256）。
+     */
+    static Map<String, String> snapshot() {
         Map<String, String> out = new TreeMap<>();
         for (Feature f : HookState.touched()) {
             List<String> labels = HookState.labels(f);
@@ -288,6 +291,10 @@ final class Report {
             long hits = HookState.hitCount(f);
             if (hits > 0) {
                 out.put(StatusProvider.PREFIX_HIT + f.key, String.valueOf(hits));
+            }
+            long entries = HookState.entryCount(f);
+            if (entries > 0) {
+                out.put(StatusProvider.PREFIX_ENTRY + f.key, String.valueOf(entries));
             }
             String skip = HookState.skipReason(f);
             if (skip != null) {

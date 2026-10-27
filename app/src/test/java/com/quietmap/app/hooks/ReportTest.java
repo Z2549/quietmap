@@ -5,6 +5,9 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import com.quietmap.app.Feature;
+import com.quietmap.app.HookState;
+
 import org.junit.Test;
 
 import java.util.ArrayList;
@@ -16,7 +19,8 @@ import java.util.TreeMap;
 
 /**
  * Report 的纯 JVM 逻辑：通道顺序（socket → Provider → 文件）、去重/心跳、
- * 文件写入时机（首次立即写、变化节流 45 秒、未变化 5 分钟心跳）。
+ * 文件写入时机（首次立即写、变化节流 45 秒、未变化 5 分钟心跳）、
+ * HookState 快照对 reg/hit/entry/skip 的打平上报。
  */
 public class ReportTest {
 
@@ -51,6 +55,45 @@ public class ReportTest {
     @Test
     public void clockRollbackAllowsOneWrite() {
         assertTrue(Report.fileWriteDue(false, T0 - 1, T0));
+    }
+
+    // ---------------------------------------------------------------- 快照
+
+    @Test
+    public void snapshotReportsEntryCountAlongsideHitAndReg() {
+        Feature f = Feature.BG_AWAKEN_REPORT;
+        HookState.installed(f, "sendAwakenPage");
+        HookState.entry(f);
+        HookState.entry(f);
+        HookState.hit(f);
+
+        Map<String, String> batch = Report.snapshot();
+        assertEquals("2", batch.get("entry." + f.key));
+        assertEquals("1", batch.get("hit." + f.key));
+        assertEquals("sendAwakenPage", batch.get("reg." + f.key));
+    }
+
+    @Test
+    public void snapshotKeepsEntryOnlyFeatureAndSendsIt() {
+        Feature f = Feature.BG_AFC_TAOKE;
+        HookState.entry(f);
+
+        Map<String, String> batch = Report.snapshot();
+        assertEquals("1", batch.get("entry." + f.key));
+        assertFalse("没有命中时不应伪造 hit", batch.containsKey("hit." + f.key));
+        assertTrue("只有 entry 的批次也必须发送",
+                Report.shouldSend(batch, Collections.emptyMap(), "s1", "s1", T0, T0));
+    }
+
+    @Test
+    public void snapshotOmitsZeroEntryCount() {
+        Feature f = Feature.HOME_BANNER;
+        HookState.installed(f, "sendList");
+
+        Map<String, String> batch = Report.snapshot();
+        assertFalse("entryCount 为 0 时不上报 entry 键",
+                batch.containsKey("entry." + f.key));
+        assertEquals("sendList", batch.get("reg." + f.key));
     }
 
     // ---------------------------------------------------------------- 通道顺序

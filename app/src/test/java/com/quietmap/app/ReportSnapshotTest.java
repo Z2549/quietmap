@@ -23,6 +23,7 @@ public class ReportSnapshotTest {
         Map<String, String> data = new TreeMap<>();
         data.put("reg.splash_gate", "canShowSplash|tryShowSplashView");
         data.put("hit.bg_msg_fetch", "42");
+        data.put("entry.bg_msg_fetch", "7");
         data.put("skip.shake_h5", "中文 跳过 \"原因\" \\ 反斜杠\n换行\t制表\u0001控制符");
         long updatedAt = 1_700_000_000_123L;
 
@@ -97,19 +98,22 @@ public class ReportSnapshotTest {
     }
 
     @Test
-    public void mergeTakesMaxHitAndOverwritesStrings() {
+    public void mergeTakesMaxCountsAndOverwritesStrings() {
         Map<String, String> existing = new TreeMap<>();
         existing.put("hit.a", "5");
+        existing.put("entry.a", "4");
         existing.put("reg.a", "old");
         existing.put("skip.keep", "keep");
 
         Map<String, String> incoming = new TreeMap<>();
         incoming.put("hit.a", "3");
+        incoming.put("entry.a", "8");
         incoming.put("reg.a", "new");
         incoming.put("hit.b", "7");
 
         Map<String, String> merged = ReportSnapshot.merge(existing, incoming);
         assertEquals("5", merged.get("hit.a"));
+        assertEquals("8", merged.get("entry.a"));
         assertEquals("new", merged.get("reg.a"));
         assertEquals("keep", merged.get("skip.keep"));
         assertEquals("7", merged.get("hit.b"));
@@ -120,14 +124,33 @@ public class ReportSnapshotTest {
     }
 
     @Test
-    public void mergeIgnoresMalformedHitAndNullValues() {
-        Map<String, String> existing = Collections.singletonMap("hit.a", "5");
+    public void mergeIgnoresMalformedCountsAndNullValues() {
+        Map<String, String> existing = new TreeMap<>();
+        existing.put("hit.a", "5");
+        existing.put("entry.a", "5");
         Map<String, String> incoming = new LinkedHashMap<>();
         incoming.put("hit.a", "not-a-number");
+        incoming.put("entry.a", "9223372036854775808");
         incoming.put("reg.a", null);
         Map<String, String> merged = ReportSnapshot.merge(existing, incoming);
         assertEquals("5", merged.get("hit.a"));
+        assertEquals("5", merged.get("entry.a"));
         assertFalse(merged.containsKey("reg.a"));
+    }
+
+    @Test
+    public void legacySnapshotWithoutEntryParsesAndMerges() {
+        ReportSnapshot legacy = ReportSnapshot.parse(
+                "{\"v\":1,\"updated_at\":10,"
+                        + "\"data\":{\"hit.splash_gate\":\"3\",\"reg.splash_gate\":\"x\"}}");
+        assertNotNull(legacy);
+        assertFalse(legacy.data().containsKey("entry.splash_gate"));
+
+        Map<String, String> merged = ReportSnapshot.merge(legacy.data(),
+                Collections.singletonMap("entry.splash_gate", "2"));
+        assertEquals("3", merged.get("hit.splash_gate"));
+        assertEquals("x", merged.get("reg.splash_gate"));
+        assertEquals("2", merged.get("entry.splash_gate"));
     }
 
     @Test

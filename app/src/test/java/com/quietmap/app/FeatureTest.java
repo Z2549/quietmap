@@ -101,7 +101,7 @@ public class FeatureTest {
     @Test
     public void adAndUiDefaultEnabled() {
         for (Feature f : Feature.values()) {
-            if (f.id.startsWith("AD-") || f.id.startsWith("UI-")) {
+            if (!f.blocked() && (f.id.startsWith("AD-") || f.id.startsWith("UI-"))) {
                 assertTrue(f.id + " " + f.key + " 应默认开启", f.defaultEnabled);
             }
         }
@@ -119,10 +119,20 @@ public class FeatureTest {
     @Test
     public void defaultEnabledMatchesGroupPolicy() {
         for (Feature f : Feature.values()) {
-            boolean expected = f.id.startsWith("AD-") || f.id.startsWith("UI-");
+            boolean expected = !f.blocked()
+                    && (f.id.startsWith("AD-") || f.id.startsWith("UI-"));
             assertEquals(f.id + " " + f.key + " 默认值与分组策略不符",
                     expected, f.defaultEnabled);
         }
+    }
+
+    @Test
+    public void msgCenterIsBlockedAndDefaultsOff() {
+        Feature f = Feature.MSG_CENTER;
+        assertTrue("UI-06 在真机未通过，必须标记 blocked", f.blocked());
+        assertFalse("blocked 项默认必须关闭", f.defaultEnabled);
+        assertTrue("blocked 必须写明原因", f.blockedReason != null
+                && !f.blockedReason.isEmpty());
     }
 
     private static java.util.List<String> keysInEnumOrder() {

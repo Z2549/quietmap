@@ -63,15 +63,41 @@ public class ReportStateTest {
     }
 
     @Test
-    public void hitParsesAndClampsNegativeValues() {
+    public void countsParseAndClampNegativeValues() {
         Map<String, String> data = new TreeMap<>();
         data.put("hit.splash_gate", "7");
         data.put("hit.bg_msg_fetch", "-3");
         data.put("hit.shake_h5", "bad");
+        data.put("entry.splash_gate", "4");
+        data.put("entry.bg_msg_fetch", "-3");
+        data.put("entry.shake_h5", "bad");
+        data.put("entry.msg_center", "9223372036854775808");
         ReportState state = ReportState.fromProvider(data, 1L);
         assertEquals(7L, state.hit("splash_gate"));
         assertEquals(0L, state.hit("bg_msg_fetch"));
         assertEquals(0L, state.hit("shake_h5"));
+        assertEquals(4L, state.entry("splash_gate"));
+        assertEquals(0L, state.entry("bg_msg_fetch"));
+        assertEquals(0L, state.entry("shake_h5"));
+        assertEquals("溢出文本按非法值丢弃", 0L, state.entry("msg_center"));
+        assertTrue(state.hasData());
+    }
+
+    @Test
+    public void entryOnlyDataCountsAsData() {
+        ReportState state = ReportState.fromProvider(
+                Collections.singletonMap("entry.splash_gate", "2"), 1L);
+        assertTrue("只有 entry 也算已回传", state.hasData());
+        assertEquals(2L, state.entry("splash_gate"));
+        assertEquals(0L, state.hit("splash_gate"));
+    }
+
+    @Test
+    public void legacySnapshotWithoutEntryStillWorks() {
+        ReportState state = ReportState.fromProvider(
+                Collections.singletonMap("hit.splash_gate", "3"), 1L);
+        assertEquals(3L, state.hit("splash_gate"));
+        assertEquals("旧快照没有 entry 字段时按 0 处理", 0L, state.entry("splash_gate"));
         assertTrue(state.hasData());
     }
 
@@ -91,19 +117,34 @@ public class ReportStateTest {
     }
 
     @Test
-    public void pickTakesMaxHitAndKeepsNonEmptyValue() {
+    public void pickTakesMaxCountsAndKeepsNonEmptyValue() {
         Map<String, String> fileData = new TreeMap<>();
         fileData.put("hit.splash_gate", "3");
+        fileData.put("entry.splash_gate", "8");
         fileData.put("skip.splash_gate", "");
         Map<String, String> providerData = new TreeMap<>();
         providerData.put("hit.splash_gate", "9");
+        providerData.put("entry.splash_gate", "2");
         providerData.put("skip.splash_gate", "provider skip");
         ReportState provider = ReportState.fromProvider(providerData, 1_000L);
 
         ReportState picked = ReportState.pick(entry(2_000L, 2_000L, fileData), provider);
         assertEquals(9L, picked.hit("splash_gate"));
+        assertEquals("entry 跨来源同样取最大值", 8L, picked.entry("splash_gate"));
         assertEquals("较新文件为空时保留旧的非空值", "provider skip",
                 picked.skip("splash_gate"));
+    }
+
+    @Test
+    public void pickKeepsEntryPresentInOnlyOneSource() {
+        Map<String, String> fileData = Collections.singletonMap(
+                "entry.splash_gate", "5");
+        ReportState provider = ReportState.fromProvider(
+                Collections.singletonMap("entry.bg_msg_fetch", "3"), 1_000L);
+
+        ReportState picked = ReportState.pick(entry(2_000L, 2_000L, fileData), provider);
+        assertEquals(5L, picked.entry("splash_gate"));
+        assertEquals(3L, picked.entry("bg_msg_fetch"));
     }
 
     @Test
@@ -122,9 +163,15 @@ public class ReportStateTest {
         data.put("reg.splash_gate", "ok");
         data.put("unknown.key", "x");
         data.put("hit.splash_gate", "not-a-number");
+        data.put("entry.splash_gate", "not-a-number");
+        data.put("entry.bg_msg_fetch", "6");
         ReportState state = ReportState.fromProvider(data, 1L);
         assertEquals("ok", state.reg("splash_gate"));
         assertEquals(0L, state.hit("splash_gate"));
+        assertEquals(0L, state.entry("splash_gate"));
+        assertEquals(6L, state.entry("bg_msg_fetch"));
+        assertNull("非法 entry 值必须被 sanitize 丢弃",
+                state.value(ReportProtocol.PREFIX_ENTRY, "splash_gate"));
         assertNull(state.value(ReportProtocol.PREFIX_SKIP, "splash_gate"));
     }
 

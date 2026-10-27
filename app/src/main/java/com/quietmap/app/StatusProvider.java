@@ -29,8 +29,8 @@ import java.util.concurrent.Executors;
  * 调用方 UID 必须属于 com.autonavi.minimap；key 只接受 ReportProtocol 白名单，
  * value 有长度上限。不存任何敏感信息。
  *
- * key 形如 reg.bg_msg_fetch / hit.bg_msg_fetch / skip.bg_msg_fetch，
- * value 对应注册标签、命中计数、跳过原因。
+ * key 形如 reg.bg_msg_fetch / hit.bg_msg_fetch / entry.bg_msg_fetch /
+ * skip.bg_msg_fetch，value 对应注册标签、命中计数、入口计数、跳过原因。
  */
 public final class StatusProvider extends ContentProvider {
 
@@ -41,11 +41,12 @@ public final class StatusProvider extends ContentProvider {
 
     /** Provider 通道最后写入时间；用于和文件兜底的 mtime 比较新旧。 */
     static final String PREFS_UPDATED_AT = ReportProtocol.PREFS_UPDATED_AT_KEY;
-    /** 主进程最近一次运行的 session；变化时清理旧会话的 reg/skip/hit。 */
+    /** 主进程最近一次运行的 session；变化时清理旧会话的 reg/skip/hit/entry。 */
     static final String PREFS_SESSION = ReportProtocol.PREFS_SESSION_KEY;
 
     public static final String PREFIX_REG = ReportProtocol.PREFIX_REG;
     public static final String PREFIX_HIT = ReportProtocol.PREFIX_HIT;
+    public static final String PREFIX_ENTRY = ReportProtocol.PREFIX_ENTRY;
     public static final String PREFIX_SKIP = ReportProtocol.PREFIX_SKIP;
 
     /** 落盘时统一加 "v:" 前缀，避免与旧版本可能存在的同名键冲突。 */
@@ -157,8 +158,8 @@ public final class StatusProvider extends ContentProvider {
             if (!ReportProtocol.validKey(key) || !ReportProtocol.isValidValue(value)) {
                 continue;
             }
-            if (key.startsWith(PREFIX_HIT)) {
-                // 命中计数取历史最大值：高德多进程各自回传，取 max 不会重复累加，
+            if (ReportProtocol.isCountKey(key)) {
+                // 命中/入口计数取历史最大值：高德多进程各自回传，取 max 不会重复累加，
                 // 也不会被另一进程的低计数覆盖回去。新会话从 0 开始。
                 long prev = reset ? 0L : sp.getLong(VALUE_PREFIX + key, 0L);
                 Long next = ReportProtocol.parseHit(value);
@@ -264,7 +265,8 @@ public final class StatusProvider extends ContentProvider {
     /**
      * 统计“已启用且明确失败”的功能数，供异常横幅使用。
      *
-     * 失败判定同时满足：用户配置为开启；目标进程有回传；reg 为空或 skip 非空。
+     * 失败判定同时满足：用户配置为开启；目标进程有回传（reg/skip/hit/entry
+     * 任一非空）；reg 为空或 skip 非空。
      * 没有回传的功能不计入，避免刚装上或目标应用未启动时误报。
      * 只在主进程统计，子进程未装 hook 的 skip 不会被误算（Report 只在主进程回传）。
      */
@@ -292,9 +294,11 @@ public final class StatusProvider extends ContentProvider {
             String reg = state.reg(f.key);
             String skip = state.skip(f.key);
             long hit = state.hit(f.key);
+            long entry = state.entry(f.key);
             boolean reported = (reg != null && !reg.isEmpty())
                     || (skip != null && !skip.isEmpty())
-                    || hit > 0;
+                    || hit > 0
+                    || entry > 0;
             if (!reported) {
                 continue;
             }

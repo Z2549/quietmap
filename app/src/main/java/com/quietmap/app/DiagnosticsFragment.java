@@ -18,7 +18,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * 诊断页：逐功能显示 registered / hit / skip。
+ * 诊断页：逐功能显示 registered / entry / hit / skip。
  *
  * 主页面零诊断，所有细节集中在这里。数据由目标进程的 HookState 经
  * hooks/Report 回传到 StatusProvider，再落到 qm_report。
@@ -202,25 +202,28 @@ public class DiagnosticsFragment extends PreferenceFragmentCompat {
         return p;
     }
 
-    /** 单功能状态：registered · hit N · skip 原因；无数据用“—”。 */
+    /** 单功能状态：registered · entry N · hit N · skip 原因；无数据用“—”。 */
     private String summary(Feature f, ReportState state) {
         if (f.blocked()) {
             return getString(R.string.diag_blocked, f.blockedReason);
         }
         String reg = state.reg(f.key);
+        long entry = state.entry(f.key);
         long hit = state.hit(f.key);
         String skip = state.skip(f.key);
 
         boolean hasReg = reg != null && !reg.isEmpty();
         boolean hasSkip = skip != null && !skip.isEmpty();
+        boolean hasEntry = entry > 0;
         boolean hasHit = hit > 0;
-        if (!hasReg && !hasSkip && !hasHit) {
+        if (!hasReg && !hasSkip && !hasEntry && !hasHit) {
             return getString(R.string.diag_no_data);
         }
 
         String dash = getString(R.string.diag_no_data);
         StringBuilder sb = new StringBuilder();
         sb.append(hasReg ? "registered" : dash);
+        sb.append(" · entry ").append(entry);
         sb.append(" · hit ").append(hit);
         sb.append(" · skip ").append(hasSkip ? skip : dash);
         return sb.toString();
@@ -233,9 +236,11 @@ public class DiagnosticsFragment extends PreferenceFragmentCompat {
         }
         String reg = state.reg(f.key);
         String skip = state.skip(f.key);
+        long entry = state.entry(f.key);
         long hit = state.hit(f.key);
         return (reg != null && !reg.isEmpty())
                 || (skip != null && !skip.isEmpty())
+                || entry > 0
                 || hit > 0;
     }
 

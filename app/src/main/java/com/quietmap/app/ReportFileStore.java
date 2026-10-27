@@ -131,7 +131,7 @@ public final class ReportFileStore {
     }
 
     /**
-     * 只保留 ReportProtocol 白名单内的键与合法值；hit 必须是可解析整数。
+     * 只保留 ReportProtocol 白名单内的键与合法值；hit/entry 必须是可解析整数。
      * 文件可能被其他进程/旧版本写过，读取侧不能信任其内容。
      */
     public static Map<String, String> sanitize(Map<String, String> data) {
@@ -145,7 +145,7 @@ public final class ReportFileStore {
             if (!ReportProtocol.validKey(key) || !ReportProtocol.isValidValue(value)) {
                 continue;
             }
-            if (key.startsWith(ReportProtocol.PREFIX_HIT)
+            if (ReportProtocol.isCountKey(key)
                     && ReportProtocol.parseHit(value) == null) {
                 continue;
             }

@@ -73,7 +73,7 @@ public final class ReportState {
 
     /**
      * 文件与 prefs 按 key 合并，而不是整源二选一：
-     * - 两个源都有的 key：hit 取最大值；reg/skip 取较新源的值，
+     * - 两个源都有的 key：hit/entry 计数取最大值；reg/skip 取较新源的值，
      *   较新值为空时回退较旧的非空值（更完整）；
      * - 只有一个源有的 key：保留该值；
      * - 返回状态的 source/path/updatedAt 取时间较新的源。
@@ -102,8 +102,8 @@ public final class ReportState {
                 merged.put(key, fromFile);
             } else if (fromFile.equals(fromProvider)) {
                 merged.put(key, fromFile);
-            } else if (key.startsWith(ReportProtocol.PREFIX_HIT)) {
-                merged.put(key, newerHit(fromFile, fromProvider));
+            } else if (ReportProtocol.isCountKey(key)) {
+                merged.put(key, newerCount(fromFile, fromProvider));
             } else if (fileNewer) {
                 merged.put(key, preferNonEmpty(fromFile, fromProvider));
             } else {
@@ -116,12 +116,12 @@ public final class ReportState {
         return new ReportState(source, updatedAt, path, merged);
     }
 
-    private static String newerHit(String first, String second) {
+    private static String newerCount(String first, String second) {
         Long a = ReportProtocol.parseHit(first);
         Long b = ReportProtocol.parseHit(second);
         long left = a == null ? 0L : a;
         long right = b == null ? 0L : b;
-        return String.valueOf(Math.max(left, right));
+        return String.valueOf(ReportProtocol.mergeHit(left, right));
     }
 
     /** 较新值优先；较新值为空串时用较旧的非空值，避免“较新”把已有信息清空。 */
@@ -165,6 +165,13 @@ public final class ReportState {
     public long hit(String key) {
         Long value = ReportProtocol.parseHit(
                 data.get(ReportProtocol.PREFIX_HIT + key));
+        return value == null ? 0L : Math.max(0L, value);
+    }
+
+    /** 入口计数；负数与非法值按 0 处理，与 hit 共用同一套规则。 */
+    public long entry(String key) {
+        Long value = ReportProtocol.parseHit(
+                data.get(ReportProtocol.PREFIX_ENTRY + key));
         return value == null ? 0L : Math.max(0L, value);
     }
 }

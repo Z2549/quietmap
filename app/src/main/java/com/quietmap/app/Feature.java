@@ -110,7 +110,8 @@ public enum Feature {
      * 本地消息清空（MessageBoxManager#getAllLocalMessages）。
      */
     MSG_CENTER("UI-06", "msg_center", R.string.f_msg_center_title,
-            R.string.f_msg_center_summary, true, Group.UI);
+            R.string.f_msg_center_summary, false, Group.UI,
+            "高德 17.01 消息页列表与角标来自未覆盖的数据链路，真机未通过");
 
     /** 统一功能编号，格式 AD/UI/PV/EN/EX-NN；只用于展示、日志与文档。 */
     public final String id;

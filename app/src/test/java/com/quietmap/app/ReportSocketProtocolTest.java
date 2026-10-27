@@ -106,6 +106,7 @@ public class ReportSocketProtocolTest {
         Map<String, String> data = new TreeMap<>();
         data.put("reg.splash_gate", "canShowSplash");
         data.put("hit.splash_gate", "7");
+        data.put("entry.splash_gate", "2");
 
         String main = ReportSocketProtocol.message(123L, "session-1", true, data);
         ReportSnapshot parsed = ReportSnapshot.parse(main);
