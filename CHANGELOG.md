@@ -31,7 +31,7 @@
 APK: `quietmap-0.8.0.apk`
 versionCode: `9`
 大小: `4,068,476 字节`
-SHA-256: `27a9697875e4ea7b450efb4097da2579b21102efb65981a1759eea739edeb90e`
+SHA-256: `0cc23dc18704edfe4fc9ecbf12f6beb5eec078e5d525e85db193e759d1c8d6d2`
 
 ## v0.7.0 — 2026-10-25
 
