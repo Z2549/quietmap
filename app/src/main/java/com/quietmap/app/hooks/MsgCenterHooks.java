@@ -76,7 +76,12 @@ final class MsgCenterHooks {
     static final String MESSAGE_TAB_BADGE_ID = "messagetab";
 
     private static final String TAG = "QuietMap";
-    private static final AtomicBoolean sStoragePathWarned = new AtomicBoolean();
+    /**
+     * jsPath 失败诊断：UI-06 的所有挂载点共享，整个进程只上报一次。
+     * 否则 getAllSessionList/getBadgeInfo 每次调用都会覆盖 skip 原因，
+     * 诊断卡只能看到“registered/entry”而看不到真正的失败原因。
+     */
+    private static final AtomicBoolean sJsPathWarned = new AtomicBoolean();
 
     private MsgCenterHooks() {
     }
@@ -170,7 +175,7 @@ final class MsgCenterHooks {
                     // 参数顺序：(boolean, JsFunctionCallback)：回调是第 2 参。
                     Object jsCallback = chain.getArg(1);
                     if (jsCallback == null
-                            || !isMessageCenterPage(jsPath(chain.getThisObject()))) {
+                            || !isMessageCenterPage(jsPathForUi06(chain.getThisObject(), f))) {
                         return chain.proceed();
                     }
                     invokeSessionListCallback(callbackMethod, jsCallback);
@@ -202,7 +207,7 @@ final class MsgCenterHooks {
                 try {
                     Object bizId = chain.getArg(0);
                     if (MESSAGE_TAB_BADGE_ID.equals(bizId)
-                            && isMessageCenterPage(jsPath(chain.getThisObject()))) {
+                            && isMessageCenterPage(jsPathForUi06(chain.getThisObject(), f))) {
                         hitQuiet(module, f, logLine);
                         return ZERO_BADGE_JSON;
                     }
@@ -223,7 +228,7 @@ final class MsgCenterHooks {
             public Object intercept(XposedInterface.Chain chain) throws Throwable {
                 noteEntry(f);
                 try {
-                    String path = recentListPagePath(chain.getThisObject());
+                    String path = jsPathForUi06(chain.getThisObject(), f);
                     if (shouldInterceptRecentList(path, chain.getArg(0), chain.getArg(1))) {
                         hitQuiet(module, f, logLine);
                         return EMPTY_RECENT_LIST_JSON;
@@ -245,7 +250,7 @@ final class MsgCenterHooks {
             public Object intercept(XposedInterface.Chain chain) throws Throwable {
                 noteEntry(f);
                 try {
-                    String path = recentListPagePath(chain.getThisObject());
+                    String path = jsPathForUi06(chain.getThisObject(), f);
                     if (shouldInterceptRecentList(path, chain.getArg(0), chain.getArg(1))) {
                         hitQuiet(module, f, logLine);
                         return Boolean.TRUE;
@@ -289,17 +294,51 @@ final class MsgCenterHooks {
         return jsPath == null || isMessageCenterPage(jsPath);
     }
 
-    private static String recentListPagePath(Object storage) {
-        String path = jsPath(storage);
-        if (path == null && sStoragePathWarned.compareAndSet(false, true)) {
-            Log.w(TAG, "UI-06 getItemSync/setItemSync: jsPath unavailable; key-only gate");
+    /**
+     * UI-06 统一的页面路径入口：jsPath 取不到时做一次诊断（warning +
+     * HookState.markNotFound），后续调用不再重复上报。返回值仍为 null，
+     * 调用方保持“非消息页 / key-only”的 fail-open 行为。
+     */
+    private static String jsPathForUi06(Object module, Feature f) {
+        String path = jsPath(module);
+        if (path == null) {
+            reportJsPathFailureOnce(f, sJsPathWarned);
         }
         return path;
     }
 
     /**
+     * jsPath 失败诊断的“只上报一次”决策。纯状态 helper：返回 true 表示本次
+     * 是进程内首次失败，调用方据此写 warning 并 markNotFound。
+     */
+    static boolean shouldReportJsPathFailure(AtomicBoolean warned) {
+        return warned != null && warned.compareAndSet(false, true);
+    }
+
+    /**
+     * 首次 jsPath 失败时记录一次 warning 并标记 UI-06 的 skip 原因。
+     * 只做诊断，不改变任何 hook 行为；日志/状态异常一律吞掉。
+     */
+    static boolean reportJsPathFailureOnce(Feature f, AtomicBoolean warned) {
+        if (!shouldReportJsPathFailure(warned)) {
+            return false;
+        }
+        try {
+            Log.w(TAG, f.id + " jsPath unavailable; message-page gate disabled");
+        } catch (Throwable ignored) {
+            // 单测环境没有 Android Log 实现；日志失败不影响诊断状态
+        }
+        try {
+            HookState.markNotFound(f, "jsPath 获取失败");
+        } catch (Throwable ignored) {
+            // 诊断状态失败不影响 hook
+        }
+        return true;
+    }
+
+    /**
      * 从 AJX module 实例取当前页面路径（IAjxContext#getJsPath）。
-     * 失败返回 null，调用方按“非消息页”fail-open。
+     * 失败返回 null；诊断由 jsPathForUi06 统一负责，调用方按 fail-open 处理。
      */
     static String jsPath(Object module) {
         if (module == null) {

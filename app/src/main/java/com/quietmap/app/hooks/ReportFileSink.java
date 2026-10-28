@@ -40,10 +40,13 @@ import java.util.Map;
  * world-readable/writable 绕过 Provider 的 UID 校验。
  *
  * 写入方式：同目录 &lt;pid&gt;.tmp + Files.move(REPLACE_EXISTING) 原子替换；
- * 多进程写同一文件时先用 .lock 串行化。只有同一 session 才与旧文件合并
- * （hit 取最大、其余覆盖）；不同 session 直接替换，避免旧 skip/reg 被
- * 盖上当前时间戳。写入后必须用 FileInputStream 读回前几个字节才算成功；
- * 不可读则继续尝试下一条路径。任何失败只记日志，绝不影响 Report 主循环。
+ * 多进程写同一文件时先用 .lock 串行化，tryLock 非阻塞。拿不到锁（null 或
+ * 加锁异常）说明另一个进程正在进行 read-modify-write，此时不写入、不等待，
+ * 本次文件兜底直接返回 false：无锁写入会覆盖对方刚写入的数据，而 Provider
+ * 仍是主通道。只有同一 session 才与旧文件合并（hit 取最大、其余覆盖）；
+ * 不同 session 直接替换，避免旧 skip/reg 被盖上当前时间戳。写入后必须用
+ * FileInputStream 读回前几个字节才算成功；不可读则继续尝试下一条路径。
+ * 任何失败只记日志，绝不影响 Report 主循环。
  */
 final class ReportFileSink {
 
@@ -99,7 +102,13 @@ final class ReportFileSink {
         List<String> failures = new ArrayList<>();
         for (File target : candidates) {
             try {
-                writeOne(target, data, now, session, tmpTag);
+                if (!writeOne(target, data, now, session, tmpTag)) {
+                    // 锁被其他进程占用：本次跳过，绝不无锁 read-modify-write。
+                    failures.add(target + " canRead=" + target.canRead()
+                            + " canWrite=" + target.canWrite()
+                            + ": lock unavailable, skipped");
+                    continue;
+                }
                 logSuccess(now, target, data.size(), failures);
                 return true;
             } catch (Throwable t) {
@@ -113,11 +122,13 @@ final class ReportFileSink {
     }
 
     /**
-     * 写单条路径：session 相同才合并旧快照，不同 session 直接替换；
-     * 写入后实际读回前 {@link #VERIFY_BYTES} 个字节，不可读视为失败。
+     * 写单条路径：先 tryLock 串行化。拿不到锁（返回 null 或加锁异常）时
+     * 直接返回 false，不等待、也不做无锁 read-modify-write，避免覆盖其他进程
+     * 刚写入的数据。成功写入并读回校验后返回 true。
+     * session 相同才合并旧快照，不同 session 直接替换。
      */
-    static void writeOne(File target, Map<String, String> data, long now,
-                         String session, String tmpTag) throws IOException {
+    static boolean writeOne(File target, Map<String, String> data, long now,
+                            String session, String tmpTag) throws IOException {
         File dir = target.getParentFile();
         if (dir == null) {
             throw new IOException("no parent dir");
@@ -131,10 +142,15 @@ final class ReportFileSink {
             try {
                 lockRaf = new RandomAccessFile(
                         new File(dir, ReportPaths.FILE_NAME + ".lock"), "rw");
-                // tryLock：另一个高德进程正在写时直接无锁继续，避免阻塞 Report 线程。
+                // tryLock 非阻塞：另一个高德进程正在写时返回 null / 抛异常，
+                // 本次文件写入直接跳过，绝不无锁 read-modify-write。
                 lock = lockRaf.getChannel().tryLock();
             } catch (Throwable ignored) {
-                // 锁文件不可创建/加锁时继续无锁写入：tmp + move 本身仍是原子的。
+                // 锁文件不可创建/加锁（含同 JVM 的 OverlappingFileLockException）。
+                lock = null;
+            }
+            if (lock == null) {
+                return false;
             }
             Map<String, String> merged = data;
             ReportFileStore.Entry existing = ReportFileStore.readForMerge(target);
@@ -177,6 +193,7 @@ final class ReportFileSink {
                     Log.w(TAG, "qmreport file sink tmp cleanup failed: " + tmp);
                 }
             }
+            return true;
         } finally {
             if (lock != null) {
                 try {

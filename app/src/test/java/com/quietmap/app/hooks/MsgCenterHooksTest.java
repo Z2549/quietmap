@@ -6,9 +6,13 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import com.quietmap.app.Feature;
+import com.quietmap.app.HookState;
+
 import org.junit.Test;
 
 import java.lang.reflect.Method;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * MsgCenterHooks 的纯 JVM 逻辑：空会话列表回调形状、页面/缓存 key 判定、
@@ -168,5 +172,31 @@ public class MsgCenterHooksTest {
         assertNull(MsgCenterHooks.jsPath(null));
         assertNull(MsgCenterHooks.jsPath(new FakeModule(null)));
         assertNull(MsgCenterHooks.jsPath(new Object()));
+    }
+
+    @Test
+    public void jsPathFailureDecisionIsOnlyReportedOnce() {
+        AtomicBoolean warned = new AtomicBoolean();
+        assertTrue("首次失败需要上报",
+                MsgCenterHooks.shouldReportJsPathFailure(warned));
+        assertFalse("后续调用不得重复上报",
+                MsgCenterHooks.shouldReportJsPathFailure(warned));
+        assertFalse(MsgCenterHooks.shouldReportJsPathFailure(null));
+    }
+
+    @Test
+    public void jsPathFailureMarksNotFoundOnlyOnce() {
+        Feature f = Feature.MSG_CENTER;
+        AtomicBoolean warned = new AtomicBoolean();
+
+        assertTrue(MsgCenterHooks.reportJsPathFailureOnce(f, warned));
+        assertEquals("jsPath 获取失败", HookState.skipReason(f));
+
+        // 模拟后续诊断原因：第二次 jsPath 失败不能再覆盖它。
+        HookState.markNotFound(f, "sentinel");
+        assertFalse("同一次进程内只上报一次",
+                MsgCenterHooks.reportJsPathFailureOnce(f, warned));
+        assertEquals("诊断状态不能被每次调用重复覆盖",
+                "sentinel", HookState.skipReason(f));
     }
 }

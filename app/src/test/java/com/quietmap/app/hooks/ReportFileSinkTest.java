@@ -16,7 +16,10 @@ import org.junit.rules.TemporaryFolder;
 
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.RandomAccessFile;
+import java.nio.channels.FileLock;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Map;
@@ -120,6 +123,52 @@ public class ReportFileSinkTest {
             assertFalse("异常路径必须清理 .tmp: " + file.getName(),
                     file.getName().contains(ReportPaths.TEMP_SUFFIX));
         }
+    }
+
+    @Test
+    public void lockFailureSkipsWriteAndReturnsFalse() throws Exception {
+        File target = new File(folder.getRoot(), ReportPaths.FILE_NAME);
+        long now = System.currentTimeMillis();
+        Map<String, String> data = Collections.singletonMap("reg.splash_gate", "x");
+
+        // 先落一份旧快照，锁失败时它必须原封不动。
+        assertTrue(ReportFileSink.writeOne(target, data, now - 1, "old", "old"));
+        String before = new String(Files.readAllBytes(target.toPath()),
+                StandardCharsets.UTF_8);
+
+        File lockFile = new File(folder.getRoot(), ReportPaths.FILE_NAME + ".lock");
+        RandomAccessFile raf = new RandomAccessFile(lockFile, "rw");
+        FileLock held = raf.getChannel().lock();
+        try {
+            Map<String, String> next = Collections.singletonMap(
+                    "reg.splash_gate", "y");
+            assertFalse("拿不到锁必须跳过本次写入",
+                    ReportFileSink.writeOne(target, next, now, "s1", "t1"));
+            assertEquals("旧快照不能被无锁覆盖", before,
+                    new String(Files.readAllBytes(target.toPath()),
+                            StandardCharsets.UTF_8));
+
+            assertFalse("writeCandidates 也不能绕过锁",
+                    ReportFileSink.writeCandidates(Collections.singletonList(target),
+                            next, now, "s1", "t2"));
+            assertEquals(before,
+                    new String(Files.readAllBytes(target.toPath()),
+                            StandardCharsets.UTF_8));
+            assertFalse("锁失败时不得留下本次 .tmp",
+                    new File(folder.getRoot(), ReportPaths.FILE_NAME + ".t2"
+                            + ReportPaths.TEMP_SUFFIX).exists());
+        } finally {
+            held.release();
+            raf.close();
+        }
+
+        // 锁释放后恢复写入能力，确认 skip 只针对被占用的那一次。
+        assertTrue(ReportFileSink.writeOne(target,
+                Collections.singletonMap("reg.splash_gate", "after"),
+                now, "s1", "t3"));
+        ReportFileStore.Entry entry = ReportFileStore.readForMerge(target);
+        assertNotNull(entry);
+        assertEquals("after", entry.snapshot.data().get("reg.splash_gate"));
     }
 
     @Test
