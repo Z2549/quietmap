@@ -17,6 +17,7 @@ import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.core.content.ContextCompat;
 import androidx.preference.Preference;
+import androidx.preference.PreferenceCategory;
 import androidx.preference.PreferenceFragmentCompat;
 import androidx.preference.PreferenceScreen;
 import androidx.preference.PreferenceViewHolder;
@@ -33,6 +34,9 @@ public class AboutFragment extends PreferenceFragmentCompat {
     private static final String TARGET_PACKAGE = "com.autonavi.minimap";
     private static final String SOURCE_URL = "https://github.com/yigenhuobah/quietmap";
     private static final String LICENSE_URL = SOURCE_URL + "/blob/main/LICENSE";
+
+    /** 桌面图标开关的 key：仅用于 onResume 回读，不参与持久化（状态在组件上）。 */
+    private static final String KEY_HIDE_ICON = "about_hide_icon";
 
     private static final int[] LINK_NAME_RES = {
             R.string.about_module_cloudmusictool,
@@ -97,6 +101,59 @@ public class AboutFragment extends PreferenceFragmentCompat {
             return true;
         });
         screen.addPreference(license);
+
+        // ── 桌面图标 ──
+        // 前面都是只读信息，唯一可操作项放最后。
+        PreferenceCategory iconCategory = new PreferenceCategory(requireContext());
+        iconCategory.setTitle(R.string.about_icon_title);
+        screen.addPreference(iconCategory);
+
+        MaterialSwitchPreference hideIcon = new MaterialSwitchPreference(requireContext());
+        hideIcon.setKey(KEY_HIDE_ICON);
+        hideIcon.setTitle(R.string.about_hide_icon_title);
+        hideIcon.setSummary(R.string.about_hide_icon_summary);
+        hideIcon.setIcon(R.drawable.ic_launcher_visibility);
+        hideIcon.setCheckedValue(LauncherIcon.isHidden(requireContext()));
+        hideIcon.setOnPreferenceChangeListener((pref, value) -> {
+            if (!(value instanceof Boolean)) {
+                return false;
+            }
+            boolean hide = (Boolean) value;
+            if (!LauncherIcon.setHidden(requireContext(), hide)) {
+                Toast.makeText(requireContext(), R.string.about_hide_icon_failed,
+                        Toast.LENGTH_LONG).show();
+                return false;
+            }
+            Toast.makeText(requireContext(),
+                    hide ? R.string.about_hide_icon_toast_hidden : R.string.about_hide_icon_toast_shown,
+                    Toast.LENGTH_SHORT).show();
+            return true;
+        });
+        screen.addPreference(hideIcon);
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        // 组件状态可能被外部改动（adb、清 App 数据），回到本页时以系统状态为准重刷。
+        syncLauncherIconState();
+    }
+
+    @Override
+    public void onHiddenChanged(boolean hidden) {
+        super.onHiddenChanged(hidden);
+        // 三个 Fragment 是 add + hide/show（不是 replace），切回本页不会走 onResume，
+        // 需要在这里补一次回读，否则开关可能停在上次的值上。
+        if (!hidden) {
+            syncLauncherIconState();
+        }
+    }
+
+    private void syncLauncherIconState() {
+        Preference p = findPreference(KEY_HIDE_ICON);
+        if (p instanceof MaterialSwitchPreference) {
+            ((MaterialSwitchPreference) p).setCheckedValue(LauncherIcon.isHidden(requireContext()));
+        }
     }
 
     private Preference info(int titleRes, CharSequence summary) {
