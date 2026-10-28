@@ -64,14 +64,15 @@ public final class ServiceBridge {
                 XposedService previous = sService.getAndSet(service);
                 Log.i(TAG, "service bound, api=" + safeApi(service) + " replaced=" + (previous != null));
                 // 绑定真正到位后再跑一次重绘，让 UI 显示真实状态。
-                Runnable r = pendingRender;
-                r.run();
+                runPendingRender();
             }
 
             @Override
             public void onServiceDied(XposedService service) {
                 if (sService.compareAndSet(service, null)) {
                     Log.w(TAG, "service died");
+                    // 断开也是状态变化：重绘设置页，让开关按 remote 不可用置灰。
+                    runPendingRender();
                 }
             }
         });
@@ -127,6 +128,15 @@ public final class ServiceBridge {
             return service.getApiVersion();
         } catch (Throwable t) {
             return 0;
+        }
+    }
+
+    /** 重绘回调来自框架 binder 线程，异常不能反向打断框架回调。 */
+    private static void runPendingRender() {
+        try {
+            pendingRender.run();
+        } catch (Throwable t) {
+            Log.w(TAG, "pending render failed", t);
         }
     }
 }

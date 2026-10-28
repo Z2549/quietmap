@@ -11,7 +11,9 @@ import android.widget.Toast;
 import androidx.preference.Preference;
 import androidx.preference.PreferenceFragmentCompat;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -47,6 +49,17 @@ public class SettingsFragment extends PreferenceFragmentCompat {
                 return t;
             });
 
+    /**
+     * ConfigStore 构造会同步拿 remote prefs（首次 binder），初始值读取也可能走
+     * binder；与状态查询分开用一条后台线程，避免状态查询排队拖慢开关渲染。
+     */
+    private static final ExecutorService CONFIG_EXECUTOR =
+            Executors.newSingleThreadExecutor(r -> {
+                Thread t = new Thread(r, "qm-settings-config");
+                t.setDaemon(true);
+                return t;
+            });
+
     private ConfigStore mStore;
     /** mStore 对应的 service 实例；同一实例内 remote prefs 不变，可复用。 */
     private XposedService mStoreService;
@@ -57,6 +70,12 @@ public class SettingsFragment extends PreferenceFragmentCompat {
     private Future<?> mStatusFuture;
     /** 后台失败功能数查询句柄；与状态卡查询共用单线程执行器。 */
     private Future<?> mBannerFuture;
+    /** 后台 ConfigStore 构造/读取句柄；新 refresh 提交前取消旧的。 */
+    private Future<?> mStoreFuture;
+    /** 查询代次：旧查询即使无法中断，也不能覆盖新查询的结果。 */
+    private int mStoreGeneration;
+    /** 主线程渲染过的开关值，写失败回滚时不再同步读 remote prefs。 */
+    private final Map<String, Boolean> mRenderedValues = new HashMap<>();
     /** 失败功能数缓存：-1 表示尚未读取。 */
     private volatile int mFailedCount = -1;
     private volatile long mFailedCountAt;
@@ -66,8 +85,6 @@ public class SettingsFragment extends PreferenceFragmentCompat {
     @Override
     public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
         setPreferencesFromResource(R.xml.prefs, rootKey);
-        mStoreService = ServiceBridge.get();
-        mStore = new ConfigStore(requireContext());
         bindFeatures();
         bindPages();
         refresh();
@@ -90,6 +107,11 @@ public class SettingsFragment extends PreferenceFragmentCompat {
             mBannerFuture.cancel(true);
             mBannerFuture = null;
         }
+        if (mStoreFuture != null) {
+            mStoreFuture.cancel(false);
+            mStoreFuture = null;
+        }
+        mStoreGeneration++;
         // 二级页返回或旋转后 view 会重建：取消过的查询不能靠 1 秒节流挡掉，
         // 否则状态卡可能停在被取消前的旧状态。
         mHasRefreshed = false;
@@ -114,19 +136,64 @@ public class SettingsFragment extends PreferenceFragmentCompat {
                 continue;
             }
 
+            // 配置在后台读取完成前不允许点击，避免把“还没加载”误当成“已开启”。
+            p.setEnabled(false);
             p.setOnPreferenceChangeListener((pref, value) -> {
                 if (value instanceof Boolean) {
-                    boolean ok = mStore.put(f.key, (Boolean) value);
-                    if (!ok) {
-                        Toast.makeText(requireContext(), R.string.action_write_failed,
-                                Toast.LENGTH_SHORT).show();
-                        // 返回 false：MaterialSwitch 回滚到旧状态。
-                        return false;
-                    }
+                    return handleToggle(f, (Boolean) value);
                 }
                 return true;
             });
         }
+    }
+
+    /**
+     * 写开关。remote 不可用时直接拒绝；写入在后台线程 commit，
+     * commit 失败再回主线程 Toast 并把开关拨回旧值。
+     */
+    private boolean handleToggle(Feature f, boolean next) {
+        ConfigStore store = mStore;
+        if (store == null || !store.remote()) {
+            Toast.makeText(requireContext(), R.string.action_write_failed,
+                    Toast.LENGTH_SHORT).show();
+            return false;
+        }
+
+        Boolean rendered = mRenderedValues.get(f.key);
+        final boolean previous = rendered != null ? rendered : f.defaultEnabled;
+        if (previous == next) {
+            return true;
+        }
+
+        final Activity host = getActivity();
+        boolean scheduled = store.put(f.key, next, committed -> {
+            if (committed || host == null) {
+                return;
+            }
+            host.runOnUiThread(() -> {
+                if (!isAdded() || getActivity() != host) {
+                    return;
+                }
+                Toast.makeText(requireContext(), R.string.action_write_failed,
+                        Toast.LENGTH_SHORT).show();
+                // 只有 UI 仍停在这笔写入的值时才回滚，避免覆盖用户后续操作。
+                if (Boolean.valueOf(next).equals(mRenderedValues.get(f.key))) {
+                    mRenderedValues.put(f.key, previous);
+                    Preference p = findPreference(f.key);
+                    if (p instanceof MaterialSwitchPreference) {
+                        ((MaterialSwitchPreference) p).setCheckedValue(previous);
+                    }
+                }
+            });
+        });
+        if (!scheduled) {
+            Toast.makeText(requireContext(), R.string.action_write_failed,
+                    Toast.LENGTH_SHORT).show();
+            return false;
+        }
+        // 先乐观更新渲染缓存；commit 失败的回调会再拨回去。
+        mRenderedValues.put(f.key, next);
+        return true;
     }
 
     /** 页脚说明。 */
@@ -140,7 +207,7 @@ public class SettingsFragment extends PreferenceFragmentCompat {
         }
     }
 
-    /** 重新读取框架状态与开关值。service 绑定后由 MainActivity 调一次。 */
+    /** 重新读取框架状态与开关值。service 绑定/断开后由 MainActivity 调一次。 */
     void refresh() {
         if (getContext() == null) {
             return;
@@ -157,37 +224,99 @@ public class SettingsFragment extends PreferenceFragmentCompat {
         mLastRefreshMs = now;
         mLastRefreshService = service;
 
-        // 同一 service 实例内 remote prefs 不会变，复用 mStore 可省掉每次 refresh 的 binder。
-        if (mStore == null || service != mStoreService) {
-            mStore = new ConfigStore(requireContext());
-            mStoreService = service;
-        }
-        boolean writable = mStore.remote();
-
         Preference status = findPreference("status");
-        if (status != null) {
-            if (service == null) {
-                status.setTitle(R.string.status_connecting);
-                status.setSummary(getString(R.string.status_detail_connecting,
-                        shownTargetVersion()));
-                appendRemoteState(status, writable);
-            } else {
-                loadStatusAsync(service, writable);
-            }
+        if (status != null && service == null) {
+            status.setTitle(R.string.status_connecting);
+            status.setSummary(getString(R.string.status_detail_connecting,
+                    shownTargetVersion()));
         }
 
+        final Activity host = requireActivity();
+        Context appContext = requireContext().getApplicationContext();
+        final Context app = appContext != null ? appContext : requireContext();
+        final ConfigStore existing = mStore;
+        final boolean rebuild = ConfigStore.needsRebuild(
+                existing != null, service == mStoreService);
+        final int generation = ++mStoreGeneration;
+        if (rebuild) {
+            // service 刚绑定/断开或还没有 store：先置灰，后台读取完成后再按
+            // remote 可用性恢复，避免这段时间里点到“改了没用”的开关。
+            setSwitchesEnabled(false);
+        }
+
+        if (mStoreFuture != null) {
+            mStoreFuture.cancel(false);
+        }
+        mStoreFuture = CONFIG_EXECUTOR.submit(() -> {
+            ConfigStore store = existing;
+            if (rebuild || store == null) {
+                try {
+                    // 构造与首次 remote prefs 绑定都在后台线程完成。
+                    store = new ConfigStore(app);
+                } catch (Throwable t) {
+                    Log.w(TAG, "config store init failed", t);
+                    store = null;
+                }
+            }
+            final boolean writable = store != null && store.remote();
+            final Map<String, Boolean> values = new HashMap<>();
+            for (Feature f : Feature.values()) {
+                values.put(f.key, store != null
+                        ? store.get(f.key, f.defaultEnabled)
+                        : f.defaultEnabled);
+            }
+            final ConfigStore loaded = store;
+
+            host.runOnUiThread(() -> {
+                if (generation != mStoreGeneration || !isAdded() || getActivity() != host) {
+                    return;
+                }
+                mStore = loaded;
+                mStoreService = service;
+                mRenderedValues.clear();
+                mRenderedValues.putAll(values);
+                applyValues(values, writable);
+
+                Preference p = findPreference("status");
+                if (p != null) {
+                    if (service == null) {
+                        appendRemoteState(p, writable);
+                    } else {
+                        loadStatusAsync(service, writable);
+                    }
+                }
+                updateBanner();
+            });
+        });
+    }
+
+    /** 主线程渲染开关值；remote 不可用或 blocked 时置灰。 */
+    private void applyValues(Map<String, Boolean> values, boolean writable) {
         for (Feature f : Feature.values()) {
             Preference p = findPreference(f.key);
             if (p instanceof MaterialSwitchPreference) {
                 MaterialSwitchPreference sw = (MaterialSwitchPreference) p;
+                Boolean value = values.get(f.key);
                 // blocked 项即使 remote 里残留 true 也必须显示关闭，避免“不可点击却显示已开启”。
-                sw.setCheckedValue(!f.blocked() && mStore.get(f.key, f.defaultEnabled));
+                sw.setCheckedValue(!f.blocked()
+                        && (value != null ? value : f.defaultEnabled));
                 // 框架没绑定时写不进去，置灰避免“改了没用”；blocked 始终置灰。
                 sw.setEnabled(writable && !f.blocked());
             }
         }
+    }
 
-        updateBanner();
+    /** 重新加载期间先置灰可写开关；blocked 项本来就是灰的，不动。 */
+    private void setSwitchesEnabled(boolean enabled) {
+        for (Feature f : Feature.values()) {
+            if (f.blocked()) {
+                continue;
+            }
+            Preference p = findPreference(f.key);
+            if (p != null) {
+                p.setEnabled(enabled);
+            }
+        }
     }
 
     /**
