@@ -138,6 +138,25 @@ public class MsgCenterHooksTest {
     }
 
     @Test
+    public void recentListGateOnlyInterceptsMessageCenter() {
+        String message = "path://amap_bundle_messagetab/src/pages/message_tab/MessageTab.page.js";
+        String mine = "path://amap_bundle_mine/src/pages/MinePage.page.js";
+        String home = "path://amap_bundle_amaphome/src/pages/MapHomePage.page.js";
+
+        assertTrue(MsgCenterHooks.shouldInterceptRecentList(
+                message, "message_tab", "recentlyMsgList-1"));
+        assertTrue(MsgCenterHooks.shouldInterceptRecentList(
+                mine, "message_tab", "recentlyMsgList-1"));
+        assertFalse("其他 AJX 页面必须放行", MsgCenterHooks.shouldInterceptRecentList(
+                home, "message_tab", "recentlyMsgList-1"));
+        assertFalse("key 不匹配时不拦截", MsgCenterHooks.shouldInterceptRecentList(
+                message, "other", "recentlyMsgList-1"));
+        assertTrue("路径取不到时保持旧的 key-only 行为",
+                MsgCenterHooks.shouldInterceptRecentList(
+                        null, "message_tab", "recentlyMsgList-1"));
+    }
+
+    @Test
     public void jsPathReadsContextReflectively() {
         assertEquals("path://amap_bundle_messagetab/x",
                 MsgCenterHooks.jsPath(new FakeModule(

@@ -1,11 +1,14 @@
 package com.quietmap.app.hooks;
 
+import android.util.Log;
+
 import com.quietmap.app.Feature;
 import com.quietmap.app.HookState;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.Locale;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import io.github.libxposed.api.XposedInterface;
 import io.github.libxposed.api.XposedModule;
@@ -71,6 +74,9 @@ final class MsgCenterHooks {
     static final String MESSAGE_TAB_NAMESPACE = "message_tab";
     static final String RECENT_LIST_KEY_PREFIX = "recentlyMsgList-";
     static final String MESSAGE_TAB_BADGE_ID = "messagetab";
+
+    private static final String TAG = "QuietMap";
+    private static final AtomicBoolean sStoragePathWarned = new AtomicBoolean();
 
     private MsgCenterHooks() {
     }
@@ -217,7 +223,8 @@ final class MsgCenterHooks {
             public Object intercept(XposedInterface.Chain chain) throws Throwable {
                 noteEntry(f);
                 try {
-                    if (isRecentListKey(chain.getArg(0), chain.getArg(1))) {
+                    String path = recentListPagePath(chain.getThisObject());
+                    if (shouldInterceptRecentList(path, chain.getArg(0), chain.getArg(1))) {
                         hitQuiet(module, f, logLine);
                         return EMPTY_RECENT_LIST_JSON;
                     }
@@ -238,7 +245,8 @@ final class MsgCenterHooks {
             public Object intercept(XposedInterface.Chain chain) throws Throwable {
                 noteEntry(f);
                 try {
-                    if (isRecentListKey(chain.getArg(0), chain.getArg(1))) {
+                    String path = recentListPagePath(chain.getThisObject());
+                    if (shouldInterceptRecentList(path, chain.getArg(0), chain.getArg(1))) {
                         hitQuiet(module, f, logLine);
                         return Boolean.TRUE;
                     }
@@ -267,6 +275,26 @@ final class MsgCenterHooks {
         return MESSAGE_TAB_NAMESPACE.equals(namespace)
                 && key instanceof String
                 && ((String) key).startsWith(RECENT_LIST_KEY_PREFIX);
+    }
+
+    /**
+     * getItemSync/setItemSync 的页面门控：key 匹配且（页面已知为消息页/我的页，
+     * 或页面路径暂时取不到时保持旧的 key-only 行为）。页面路径能取到且明确是
+     * 其他页面时一律 proceed，避免误伤首页/搜索的 AJX 缓存。
+     */
+    static boolean shouldInterceptRecentList(String jsPath, Object namespace, Object key) {
+        if (!isRecentListKey(namespace, key)) {
+            return false;
+        }
+        return jsPath == null || isMessageCenterPage(jsPath);
+    }
+
+    private static String recentListPagePath(Object storage) {
+        String path = jsPath(storage);
+        if (path == null && sStoragePathWarned.compareAndSet(false, true)) {
+            Log.w(TAG, "UI-06 getItemSync/setItemSync: jsPath unavailable; key-only gate");
+        }
+        return path;
     }
 
     /**
