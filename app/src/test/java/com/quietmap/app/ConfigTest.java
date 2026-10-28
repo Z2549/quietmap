@@ -1,6 +1,7 @@
 package com.quietmap.app;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 
 import org.junit.Test;
 
@@ -73,5 +74,56 @@ public class ConfigTest {
             assertEquals("reader 返回 null 时 " + f.key + " 应走编译期默认值",
                     f.defaultEnabled, c.enabled(f));
         }
+    }
+
+    /** 单个 key 读取抛异常：只回退该 key，其余覆盖值继续生效，告警一次。 */
+    @Test
+    public void singleKeyFailureOnlyFallsBackThatKey() {
+        int[] warnings = {0};
+        Config c = Config.load(true, () -> Config.readOverrides((key, def) -> {
+            if (Feature.SPLASH_GATE.key.equals(key)) {
+                throw new IllegalStateException("bad pref type: " + key);
+            }
+            if (Feature.BG_MSG_FETCH.key.equals(key)) {
+                return false;
+            }
+            return def;
+        }, (key, t) -> warnings[0]++));
+
+        assertEquals("失败 key 回退 defaultEnabled",
+                Feature.SPLASH_GATE.defaultEnabled, c.enabled(Feature.SPLASH_GATE));
+        assertFalse("其他 key 的覆盖值必须保留",
+                c.enabled(Feature.BG_MSG_FETCH));
+        for (Feature f : Feature.values()) {
+            if (f == Feature.SPLASH_GATE || f == Feature.BG_MSG_FETCH) {
+                continue;
+            }
+            assertEquals("未受影响 key 保持默认值: " + f.key,
+                    f.defaultEnabled, c.enabled(f));
+        }
+        assertEquals("整次加载只告警一次", 1, warnings[0]);
+    }
+
+    /** 多个 key 抛异常：各自回退默认值，仍只告警一次，其他 key 不受影响。 */
+    @Test
+    public void multipleKeyFailuresWarnOnceAndKeepOtherOverrides() {
+        int[] warnings = {0};
+        Config c = Config.load(true, () -> Config.readOverrides((key, def) -> {
+            if (Feature.SPLASH_GATE.key.equals(key)
+                    || Feature.SPLASH_REQUEST.key.equals(key)) {
+                throw new IllegalStateException("corrupt " + key);
+            }
+            if (Feature.SPLASH_SHAKE.key.equals(key)) {
+                return false;
+            }
+            return def;
+        }, (key, t) -> warnings[0]++));
+
+        assertEquals(Feature.SPLASH_GATE.defaultEnabled,
+                c.enabled(Feature.SPLASH_GATE));
+        assertEquals(Feature.SPLASH_REQUEST.defaultEnabled,
+                c.enabled(Feature.SPLASH_REQUEST));
+        assertFalse("正常读取的覆盖值必须保留", c.enabled(Feature.SPLASH_SHAKE));
+        assertEquals("多个 key 失败也只告警一次", 1, warnings[0]);
     }
 }

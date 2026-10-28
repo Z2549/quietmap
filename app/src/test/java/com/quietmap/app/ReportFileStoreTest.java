@@ -160,6 +160,24 @@ public class ReportFileStoreTest {
     }
 
     @Test
+    public void probePreservesSessionForReaderFiltering() throws Exception {
+        long now = System.currentTimeMillis();
+        File file = write("session.json", ReportSnapshot.toJson(now, "session-1",
+                Collections.singletonMap("reg.splash_gate", "x")));
+        ReportFileStore.Entry entry = ReportFileStore.read(
+                file, now, ReportFileStore.MAX_AGE_MS);
+        assertNotNull(entry);
+        assertEquals("session-1", entry.snapshot.session());
+
+        File legacy = write("legacy-session.json",
+                json(now, "reg.splash_gate", "x"));
+        ReportFileStore.Entry legacyEntry = ReportFileStore.read(
+                legacy, now, ReportFileStore.MAX_AGE_MS);
+        assertNotNull(legacyEntry);
+        assertNull("旧文件没有 session", legacyEntry.snapshot.session());
+    }
+
+    @Test
     public void oversizedFileIsRejected() throws Exception {
         long now = System.currentTimeMillis();
         StringBuilder sb = new StringBuilder("{\"v\":1,\"updated_at\":")

@@ -30,16 +30,19 @@ import java.util.concurrent.TimeUnit;
  *
  * 节流：后台单线程每 3 秒把 HookState 快照打平上报一次，内容没变不发；
  * 三条通道全部失败时退避 60 秒，不刷日志。socket/Provider 都是进程外通道，
- * 即使快照没变也每 60 秒重发一次：主进程重启会清空 prefs 里旧 session 的数据，
- * 子进程的 sLast 去重必须靠这次心跳把数据补回来。去重条件同时包含 session。
+ * 即使快照没变也每 60 秒重发一次：模块 App 可能在目标进程存活期间清空/重建
+ * prefs，心跳能把当前会话的数据补回去。去重条件同时包含 session。
  *
  * 文件通道已降级为调试/旧系统兜底：只有 socket 与 Provider 都失败时才写，
  * 并且仍受 45 秒变化节流 / 5 分钟心跳限制。Android 11+ 通常不可用。
  *
- * session：每个目标进程启动时生成一个 UUID，随快照一起写入。同一 session
+ * 进程边界：本类只在目标 App 主进程启动（见 Hooks.shouldStartReport）。
+ * 子进程只承担后台组件，继续上报只会用不完整的 reg/skip 污染诊断；
+ * StatusProvider 对旧版本子进程回传的 reg./skip. 也会忽略，只合并计数键。
+ *
+ * session：主进程每次启动生成一个 UUID，随快照一起写入。同一 session
  * 的旧文件才合并，不同 session 直接替换，避免旧 skip/reg 被盖上当前时间戳。
- * 主进程会把 session/是否主进程一并回传，供服务端在新会话开始时清理旧数据；
- * 子进程只做 max-hit 合并，不触发清理。
+ * 主进程会把 session/是否主进程一并回传，供服务端在新会话开始时清理旧数据。
  */
 final class Report {
 
@@ -56,11 +59,10 @@ final class Report {
     /** 快照变化后的常规文件写入最小间隔，避免命中计数每 3 秒刷盘。 */
     static final long FILE_MIN_INTERVAL_MS = 45_000L;
 
-    /** 本进程运行的唯一标识；跨进程写同一文件时用于判断是否合并。 */
+    /** 本主进程运行的唯一标识；跨进程写同一文件时用于判断是否合并。 */
     static final String SESSION = UUID.randomUUID().toString();
 
     private static volatile boolean sStarted;
-    private static volatile boolean sMainProcess = true;
     private static volatile Context sContext;
     private static volatile Map<String, String> sLast = new TreeMap<>();
     private static volatile String sLastSession;
@@ -76,8 +78,8 @@ final class Report {
     private Report() {
     }
 
-    static synchronized void start(boolean mainProcess) {
-        sMainProcess = mainProcess;
+    /** 仅在主进程调用；重复调用幂等。 */
+    static synchronized void start() {
         if (sStarted) {
             return;
         }
@@ -104,7 +106,7 @@ final class Report {
         if (now < sNextTry) {
             return;
         }
-        String json = ReportSocketProtocol.message(now, SESSION, sMainProcess, batch);
+        String json = ReportSocketProtocol.message(now, SESSION, true, batch);
         String used = deliver(
                 () -> ReportSocketSink.write(json),
                 () -> sendProvider(batch),
@@ -195,7 +197,7 @@ final class Report {
         extras.putStringArray("keys", keys.toArray(new String[0]));
         extras.putStringArray("values", values.toArray(new String[0]));
         extras.putString("session", SESSION);
-        extras.putBoolean("main", sMainProcess);
+        extras.putBoolean("main", true);
         try {
             Bundle result = context.getContentResolver().call(
                     Uri.parse("content://" + StatusProvider.AUTHORITY), "report", null, extras);

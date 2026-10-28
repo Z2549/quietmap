@@ -68,6 +68,12 @@ public class HooksTest {
         assertEquals(expected, Feature.values().length - countBlocked());
     }
 
+    @Test
+    public void reportOnlyStartsInMainProcess() {
+        assertTrue("主进程必须启动诊断回传", Hooks.shouldStartReport(true));
+        assertFalse("子进程不得启动诊断回传", Hooks.shouldStartReport(false));
+    }
+
     private static int countBlocked() {
         int blocked = 0;
         for (Feature f : Feature.values()) {

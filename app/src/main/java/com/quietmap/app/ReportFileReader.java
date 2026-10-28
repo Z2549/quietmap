@@ -21,6 +21,10 @@ import java.util.List;
  * Android 11+ 模块 App 通常读不到目标进程写的 Android/media 文件；读不到时只记
  * 日志，绝不影响 socket/Provider 数据。
  *
+ * 会话过滤：文件快照带 session。若 prefs 里已有主进程当前 session，而文件
+ * session 与它不一致（双方都有值），该文件来自旧会话，直接忽略；旧版本文件
+ * 没有 session 时按兼容处理，仍可参与合并。
+ *
  * 读侧只做尽力而为：任何路径/权限/解析失败都只打日志，不阻塞诊断页。
  */
 public final class ReportFileReader {
@@ -30,12 +34,13 @@ public final class ReportFileReader {
     private ReportFileReader() {
     }
 
-    /** prefs（socket/Provider）为主；文件仅在更新且有效时按 key 合并。 */
+    /** prefs（socket/Provider）为主；文件仅在更新、有效且 session 一致时按 key 合并。 */
     public static ReportState read(Context context) {
         if (context == null) {
             return ReportState.none();
         }
         ReportState provider = StatusProvider.providerState(context);
+        String currentSession = provider.session();
         long now = System.currentTimeMillis();
         ReportFileStore.Entry best = null;
         List<File> candidates = candidates(context);
@@ -48,6 +53,15 @@ public final class ReportFileReader {
                 continue;
             }
             if (probe.entry != null) {
+                if (!ReportState.sessionCompatible(currentSession,
+                        probe.entry.snapshot.session())) {
+                    // 旧会话文件即使 mtime 很新也不能合并：它的 reg/skip 属于上一轮运行。
+                    Log.i(TAG, "qmreport file sink read skip path=" + file
+                            + " reason=session mismatch file="
+                            + shortSession(probe.entry.snapshot.session())
+                            + " current=" + shortSession(currentSession));
+                    continue;
+                }
                 Log.i(TAG, "qmreport file sink read ok path=" + file
                         + " age=" + (now - probe.entry.mtime) + "ms"
                         + " canRead=" + file.canRead());
@@ -68,7 +82,8 @@ public final class ReportFileReader {
         if (!picked.hasData()) {
             // 没有新鲜数据也没有 prefs：展示最后一次有效文件数据 + 时间，
             // 而不是直接空白；页面会用 FILE_STALE 标注“已过期”。
-            ReportFileStore.Entry lastKnown = lastKnown(candidates);
+            // 旧会话文件同样不参与兜底，避免展示上一轮运行的残留数据。
+            ReportFileStore.Entry lastKnown = lastKnown(candidates, currentSession);
             if (lastKnown != null) {
                 Log.i(TAG, "qmreport file sink stale fallback path=" + lastKnown.file
                         + " age=" + (now - lastKnown.effectiveTime()) + "ms");
@@ -79,8 +94,9 @@ public final class ReportFileReader {
         return picked;
     }
 
-    /** 不复用新鲜度检查：取最近一份结构完整的旧快照（可能已超过 TTL）。 */
-    private static ReportFileStore.Entry lastKnown(List<File> candidates) {
+    /** 不复用新鲜度检查：取最近一份结构完整、且属于当前会话的旧快照（可能已超过 TTL）。 */
+    private static ReportFileStore.Entry lastKnown(List<File> candidates,
+                                                   String currentSession) {
         ReportFileStore.Entry best = null;
         for (File file : candidates) {
             ReportFileStore.Entry entry;
@@ -89,12 +105,22 @@ public final class ReportFileReader {
             } catch (Throwable t) {
                 continue;
             }
-            if (entry != null && (best == null
-                    || entry.effectiveTime() > best.effectiveTime())) {
+            if (entry == null
+                    || !ReportState.sessionCompatible(currentSession, entry.snapshot.session())) {
+                continue;
+            }
+            if (best == null || entry.effectiveTime() > best.effectiveTime()) {
                 best = entry;
             }
         }
         return best;
+    }
+
+    private static String shortSession(String session) {
+        if (session == null || session.isEmpty()) {
+            return "-";
+        }
+        return session.length() <= 8 ? session : session.substring(0, 8);
     }
 
     /** 与写入侧一致的候选路径；模块读侧读不到目标 App 的 Android/data，仅尽力尝试。 */

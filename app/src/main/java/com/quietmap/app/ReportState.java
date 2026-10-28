@@ -7,10 +7,12 @@ import java.util.TreeMap;
 import java.util.TreeSet;
 
 /**
- * 诊断页的一次读取结果：数据来源、最后更新时间、文件路径与键值。
+ * 诊断页的一次读取结果：数据来源、最后更新时间、文件路径、会话标识与键值。
  *
  * 纯 Java，便于单测锁定「文件与 prefs 按 key 合并、较新且非空者优先」的
- * 选择逻辑。FILE_STALE 表示文件已超过 TTL，仅用于展示“最近一次数据 + 时间”。
+ * 选择逻辑。session 用于识别旧会话文件：文件 session 与当前主进程 session
+ * 不一致时不得参与合并。FILE_STALE 表示文件已超过 TTL，仅用于展示
+ * “最近一次数据 + 时间”，不参与失败统计。
  */
 public final class ReportState {
 
@@ -23,18 +25,20 @@ public final class ReportState {
     }
 
     private static final ReportState EMPTY = new ReportState(
-            Source.NONE, 0L, null, Collections.emptyMap());
+            Source.NONE, 0L, null, null, Collections.emptyMap());
 
     private final Source source;
     private final long updatedAt;
     private final String path;
+    private final String session;
     private final Map<String, String> data;
 
-    private ReportState(Source source, long updatedAt, String path,
+    private ReportState(Source source, long updatedAt, String path, String session,
                         Map<String, String> data) {
         this.source = source;
         this.updatedAt = updatedAt;
         this.path = path;
+        this.session = session;
         this.data = Collections.unmodifiableMap(new TreeMap<>(
                 data != null ? data : Collections.emptyMap()));
     }
@@ -48,7 +52,8 @@ public final class ReportState {
             return EMPTY;
         }
         return new ReportState(Source.FILE, entry.snapshot.updatedAt(),
-                entry.file != null ? entry.file.getPath() : null, entry.snapshot.data());
+                entry.file != null ? entry.file.getPath() : null,
+                entry.snapshot.session(), entry.snapshot.data());
     }
 
     /** 文件已过期，但仍展示最后一份有效快照及其时间。 */
@@ -57,18 +62,42 @@ public final class ReportState {
             return EMPTY;
         }
         return new ReportState(Source.FILE_STALE, entry.snapshot.updatedAt(),
-                entry.file != null ? entry.file.getPath() : null, entry.snapshot.data());
+                entry.file != null ? entry.file.getPath() : null,
+                entry.snapshot.session(), entry.snapshot.data());
     }
 
     public static ReportState fromProvider(Map<String, String> data, long updatedAt) {
-        return new ReportState(Source.PROVIDER, updatedAt, null,
+        return fromProvider(data, updatedAt, null);
+    }
+
+    public static ReportState fromProvider(Map<String, String> data, long updatedAt,
+                                           String session) {
+        return new ReportState(Source.PROVIDER, updatedAt, null, session,
                 ReportFileStore.sanitize(data));
     }
 
     /** socket 通道写入的 prefs 数据；与 Provider 数据同 schema，只区来源。 */
     public static ReportState fromSocket(Map<String, String> data, long updatedAt) {
-        return new ReportState(Source.SOCKET, updatedAt, null,
+        return fromSocket(data, updatedAt, null);
+    }
+
+    public static ReportState fromSocket(Map<String, String> data, long updatedAt,
+                                         String session) {
+        return new ReportState(Source.SOCKET, updatedAt, null, session,
                 ReportFileStore.sanitize(data));
+    }
+
+    /**
+     * 文件 session 是否属于当前主进程会话。任一侧缺失时按兼容处理：
+     * 旧文件没有 session、或尚未收到主进程 session 时仍可使用；
+     * 双方都有值时必须完全相等，否则该文件来自旧会话，必须忽略。
+     */
+    public static boolean sessionCompatible(String currentSession, String fileSession) {
+        if (currentSession == null || currentSession.isEmpty()
+                || fileSession == null || fileSession.isEmpty()) {
+            return true;
+        }
+        return currentSession.equals(fileSession);
     }
 
     /**
@@ -76,19 +105,25 @@ public final class ReportState {
      * - 两个源都有的 key：hit/entry 计数取最大值；reg/skip 取较新源的值，
      *   较新值为空时回退较旧的非空值（更完整）；
      * - 只有一个源有的 key：保留该值；
-     * - 返回状态的 source/path/updatedAt 取时间较新的源。
+     * - 返回状态的 source/path/updatedAt/session 取时间较新的源。
+     * - 文件 session 与 prefs（当前主进程）session 不一致时，文件整份忽略，
+     *   避免旧会话的 reg/skip 被合并进当前会话。
      */
     public static ReportState pick(ReportFileStore.Entry file, ReportState provider) {
-        if (file == null) {
-            return provider != null && provider.hasData() ? provider : EMPTY;
+        ReportState current = provider != null ? provider : EMPTY;
+        if (file != null && !sessionCompatible(current.session(), file.snapshot.session())) {
+            file = null;
         }
-        if (provider == null || !provider.hasData()) {
+        if (file == null) {
+            return current.hasData() ? current : EMPTY;
+        }
+        if (!current.hasData()) {
             return fromFile(file);
         }
-        boolean fileNewer = provider.updatedAt() <= 0L
-                || file.effectiveTime() >= provider.updatedAt();
+        boolean fileNewer = current.updatedAt() <= 0L
+                || file.effectiveTime() >= current.updatedAt();
         Map<String, String> fileData = file.snapshot.data();
-        Map<String, String> providerData = provider.data;
+        Map<String, String> providerData = current.data;
         Set<String> keys = new TreeSet<>(fileData.keySet());
         keys.addAll(providerData.keySet());
 
@@ -110,10 +145,15 @@ public final class ReportState {
                 merged.put(key, preferNonEmpty(fromProvider, fromFile));
             }
         }
-        Source source = fileNewer ? Source.FILE : provider.source();
-        long updatedAt = fileNewer ? file.snapshot.updatedAt() : provider.updatedAt();
+        Source source = fileNewer ? Source.FILE : current.source();
+        long updatedAt = fileNewer ? file.snapshot.updatedAt() : current.updatedAt();
         String path = fileNewer && file.file != null ? file.file.getPath() : null;
-        return new ReportState(source, updatedAt, path, merged);
+        String fileSession = file.snapshot.session();
+        String session = fileNewer
+                ? (fileSession != null && !fileSession.isEmpty()
+                        ? fileSession : current.session())
+                : current.session();
+        return new ReportState(source, updatedAt, path, session, merged);
     }
 
     private static String newerCount(String first, String second) {
@@ -144,6 +184,14 @@ public final class ReportState {
     /** 仅 Source.FILE / FILE_STALE 时非 null。 */
     public String path() {
         return path;
+    }
+
+    /**
+     * 数据所属会话：FILE/FILE_STALE 来自文件快照，PROVIDER/SOCKET 来自 prefs
+     * meta.session；旧文件或尚未收到主进程 session 时为 null。
+     */
+    public String session() {
+        return session;
     }
 
     public boolean hasData() {

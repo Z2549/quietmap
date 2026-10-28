@@ -64,6 +64,16 @@ public final class ReportProtocol {
                 && (key.startsWith(PREFIX_HIT) || key.startsWith(PREFIX_ENTRY));
     }
 
+    /**
+     * 进程级写入白名单：主进程可写全部键；非主进程只允许合并 hit./entry.，
+     * reg./skip. 一律丢弃。Report 现在只在主进程启动，这里兜住旧版本/其他
+     * 路径仍在回传的子进程数据，避免“子进程缺少 UI 钩子”的 skip 被
+     * failedFeatureCount 误算成失败。
+     */
+    public static boolean acceptFromProcess(boolean mainProcess, String key) {
+        return mainProcess || isCountKey(key);
+    }
+
     public static final int MAX_KEY = 128;
     public static final int MAX_VALUE = 256;
 

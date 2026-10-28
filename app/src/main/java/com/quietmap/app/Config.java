@@ -12,7 +12,9 @@ import io.github.libxposed.api.XposedModule;
 
 /**
  * 开关读取：有 PROP_CAP_REMOTE 才读 getRemotePreferences("config")，
- * 否则（含能力探测/读取/键读取任一步抛异常）回退到 Feature 的编译期内置默认值。
+ * 否则（含能力探测/读取失败）回退到 Feature 的编译期内置默认值。
+ * 读取阶段按 key 隔离：单个 key 抛异常只回退该 key 的 defaultEnabled，
+ * 其余 key 继续读取，绝不因为一个坏值放弃全部开关。
  * 必须在 onModuleLoaded 之后调用，之前任何 API 都会抛 IllegalStateException。
  */
 public final class Config {
@@ -48,8 +50,9 @@ public final class Config {
 
     /**
      * remote 开关的读取器：返回 key → enabled 的 Map。
-     * 读取失败（含返回 null）由 {@link #load(boolean, RemoteReader)} 统一吞掉并回退默认值，
-     * 因此实现可以放心把框架异常往外抛。
+     * 整份读取失败（含返回 null）由 {@link #load(boolean, RemoteReader)} 统一吞掉
+     * 并回退默认值；实现可以放心把框架异常往外抛。生产读取器应先用
+     * {@link #readOverrides} 逐 key 兜住单键异常。
      */
     @FunctionalInterface
     interface RemoteReader {
@@ -57,7 +60,50 @@ public final class Config {
     }
 
     /**
-     * 纯 JVM 可测入口：remote=false 或读取失败时全默认；
+     * 单 key 读取器：key 读取异常由 {@link #readOverrides} 逐个兜住，
+     * 实现可以把 SharedPreferences/框架异常直接往外抛。
+     */
+    @FunctionalInterface
+    interface BooleanGetter {
+        boolean get(String key, boolean def) throws Throwable;
+    }
+
+    /** 单 key 读取失败告警；整次加载最多调用一次，避免坏 prefs 刷屏。 */
+    @FunctionalInterface
+    interface Warning {
+        void warn(String key, Throwable t);
+    }
+
+    /**
+     * 逐 key 读取 remote 开关：单个 key 抛异常只跳过该 key（调用方回退
+     * defaultEnabled），整次加载记录一次 warning，其余 key 继续。
+     * 返回的 Map 可能缺少失败键；任何异常都不向外抛。
+     */
+    static Map<String, Boolean> readOverrides(BooleanGetter getter, Warning warning) {
+        Map<String, Boolean> overrides = new HashMap<>();
+        if (getter == null) {
+            return overrides;
+        }
+        boolean warned = false;
+        for (Feature f : Feature.values()) {
+            try {
+                overrides.put(f.key, getter.get(f.key, f.defaultEnabled));
+            } catch (Throwable t) {
+                if (!warned && warning != null) {
+                    warned = true;
+                    try {
+                        warning.warn(f.key, t);
+                    } catch (Throwable ignored) {
+                        // 告警出口自身失败也不能影响其余 key。
+                    }
+                }
+            }
+        }
+        return overrides;
+    }
+
+    /**
+     * 纯 JVM 可测入口：remote=false 或整份读取失败时全默认；
      * 读取成功时缺键用 Feature 编译期默认值，未知键忽略。
      * 任何异常都不向外抛。
      */
@@ -88,20 +134,21 @@ public final class Config {
             return new Config();
         }
         return load(true, () -> {
+            SharedPreferences sp;
             try {
-                SharedPreferences sp = module.getRemotePreferences(GROUP);
-                if (sp == null) {
-                    throw new IllegalStateException("remote prefs is null");
-                }
-                Map<String, Boolean> overrides = new HashMap<>();
-                for (Feature f : Feature.values()) {
-                    overrides.put(f.key, sp.getBoolean(f.key, f.defaultEnabled));
-                }
-                return overrides;
+                sp = module.getRemotePreferences(GROUP);
             } catch (Throwable t) {
                 module.log(Log.WARN, TAG, "remote prefs unavailable: use built-in defaults", t);
                 throw t;
             }
+            if (sp == null) {
+                IllegalStateException e = new IllegalStateException("remote prefs is null");
+                module.log(Log.WARN, TAG, "remote prefs unavailable: use built-in defaults", e);
+                throw e;
+            }
+            return readOverrides(sp::getBoolean, (key, t) ->
+                    module.log(Log.WARN, TAG, "remote pref read failed key=" + key
+                            + ": use built-in default", t));
         });
     }
 

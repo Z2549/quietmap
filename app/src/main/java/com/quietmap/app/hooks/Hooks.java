@@ -77,14 +77,25 @@ public final class Hooks {
     }
 
     /**
+     * 诊断回传只在目标 App 主进程启动。子进程（:locationservice、:widgetProvider）
+     * 仍然安装各自需要的 hook，但只承担后台组件，不再写 reg/skip，避免
+     * failedFeatureCount 把“子进程缺少某个 UI 钩子”误判成失败。
+     */
+    static boolean shouldStartReport(boolean mainProcess) {
+        return mainProcess;
+    }
+
+    /**
      * @param mainProcess 当前是否为主进程（进程名 == 包名）。非主进程（:locationservice、
      *                    :widgetProvider）关闭 DexKit：那里只需要类名/方法名兜底（Wave 1 已把
      *                    类名命中放在 DexKit 之前），不值得付出 native 全 dex 扫描成本。
+     *                    非主进程也不启动诊断回传：子进程没有 UI 钩子，上报的 reg/skip
+     *                    只会污染 failedFeatureCount。
      */
     public static void installAll(XposedModule module, ClassLoader cl, boolean mainProcess) {
         DexKitLocator.setEnabled(mainProcess);
         if (!mainProcess) {
-            module.log(Log.INFO, TAG, "non-main process, dexkit disabled");
+            module.log(Log.INFO, TAG, "non-main process, dexkit disabled, report disabled");
         }
         Config config;
         try {
@@ -97,7 +108,9 @@ public final class Hooks {
             module.log(Log.INFO, TAG, "all features disabled, nothing to hook");
             return;
         }
-        Report.start(mainProcess);
+        if (shouldStartReport(mainProcess)) {
+            Report.start();
+        }
         for (Feature f : Feature.values()) {
             if (!shouldInstall(f, config.enabled(f))) {
                 if (f.blocked()) {

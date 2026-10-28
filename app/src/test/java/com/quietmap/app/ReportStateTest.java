@@ -158,6 +158,90 @@ public class ReportStateTest {
     }
 
     @Test
+    public void fileAndStaleStatesKeepSnapshotSession() {
+        ReportState file = ReportState.fromFile(entry(1_000L, 1_000L, "session-1",
+                Collections.singletonMap("reg.splash_gate", "x")));
+        assertEquals("session-1", file.session());
+
+        ReportState stale = ReportState.fromStaleFile(entry(1_000L, 1_000L, "session-2",
+                Collections.singletonMap("reg.splash_gate", "x")));
+        assertEquals("session-2", stale.session());
+    }
+
+    @Test
+    public void providerAndSocketStatesKeepMetaSession() {
+        Map<String, String> data = Collections.singletonMap("reg.splash_gate", "x");
+        assertEquals("provider-session",
+                ReportState.fromProvider(data, 1L, "provider-session").session());
+        assertEquals("socket-session",
+                ReportState.fromSocket(data, 1L, "socket-session").session());
+        assertNull("旧调用不带 session 时保持 null",
+                ReportState.fromProvider(data, 1L).session());
+        assertNull(ReportState.none().session());
+    }
+
+    @Test
+    public void pickIgnoresFileFromDifferentSession() {
+        ReportState provider = ReportState.fromSocket(
+                Collections.singletonMap("reg.splash_gate", "current"),
+                2_000L, "session-new");
+        ReportState picked = ReportState.pick(entry(3_000L, 3_000L, "session-old",
+                Collections.singletonMap("reg.splash_gate", "old")), provider);
+        assertEquals("旧会话文件即使更新也必须忽略",
+                ReportState.Source.SOCKET, picked.source());
+        assertEquals("current", picked.reg("splash_gate"));
+        assertEquals("session-new", picked.session());
+    }
+
+    @Test
+    public void mismatchedFileWithoutProviderDataYieldsNone() {
+        ReportState provider = ReportState.fromProvider(
+                Collections.emptyMap(), 0L, "session-new");
+        ReportState picked = ReportState.pick(entry(3_000L, 3_000L, "session-old",
+                Collections.singletonMap("reg.splash_gate", "old")), provider);
+        assertEquals("旧会话文件不能成为唯一数据源",
+                ReportState.Source.NONE, picked.source());
+        assertFalse(picked.hasData());
+    }
+
+    @Test
+    public void pickAcceptsLegacyFileWithoutSessionAndKeepsCurrentSession() {
+        ReportState provider = ReportState.fromSocket(
+                Collections.singletonMap("reg.splash_gate", "current"),
+                2_000L, "session-new");
+        ReportState picked = ReportState.pick(
+                entry(3_000L, 3_000L,
+                        Collections.singletonMap("reg.splash_gate", "file")),
+                provider);
+        assertEquals(ReportState.Source.FILE, picked.source());
+        assertEquals("file", picked.reg("splash_gate"));
+        assertEquals("旧文件没有 session 时按兼容处理，仍沿用当前 session",
+                "session-new", picked.session());
+    }
+
+    @Test
+    public void pickTakesSessionFromNewerSource() {
+        ReportState provider = ReportState.fromProvider(
+                Collections.singletonMap("reg.splash_gate", "provider"),
+                3_000L, "session-provider");
+        ReportState picked = ReportState.pick(entry(1_000L, 1_000L, "session-file",
+                Collections.singletonMap("reg.splash_gate", "file")), provider);
+        assertEquals(ReportState.Source.PROVIDER, picked.source());
+        assertEquals("session-provider", picked.session());
+    }
+
+    @Test
+    public void sessionCompatibleTreatsMissingSideAsCompatible() {
+        assertTrue("旧文件没有 session 时兼容", ReportState.sessionCompatible(null, "file"));
+        assertTrue("尚未收到主进程 session 时兼容", ReportState.sessionCompatible("current", null));
+        assertTrue(ReportState.sessionCompatible("", "file"));
+        assertTrue(ReportState.sessionCompatible("current", ""));
+        assertTrue(ReportState.sessionCompatible("same", "same"));
+        assertFalse("双方都有值且不同必须判定为旧会话",
+                ReportState.sessionCompatible("current", "old"));
+    }
+
+    @Test
     public void providerValuesAreSanitized() {
         Map<String, String> data = new TreeMap<>();
         data.put("reg.splash_gate", "ok");
@@ -200,7 +284,13 @@ public class ReportStateTest {
 
     private static ReportFileStore.Entry entry(long mtime, long updatedAt,
                                                Map<String, String> data) {
-        ReportSnapshot snapshot = new ReportSnapshot(updatedAt, data);
+        return entry(mtime, updatedAt, null, data);
+    }
+
+    private static ReportFileStore.Entry entry(long mtime, long updatedAt,
+                                               String session,
+                                               Map<String, String> data) {
+        ReportSnapshot snapshot = new ReportSnapshot(updatedAt, session, data);
         return new ReportFileStore.Entry(new File("qm_report.json"), snapshot, mtime);
     }
 }

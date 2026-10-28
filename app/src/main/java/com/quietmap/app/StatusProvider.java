@@ -134,6 +134,10 @@ public final class StatusProvider extends ContentProvider {
      * {@link ReportSocketServer} 共用，保证两条通道的合并语义一致
      * （hit 取历史最大、reg/skip 覆盖、主进程新 session 清理旧数据）。
      *
+     * 进程边界：非主进程只允许合并 hit./entry.，reg./skip. 直接丢弃。
+     * Report 现在只在主进程启动，这里兜住旧版本子进程仍在上报的数据，
+     * 避免“子进程缺少 UI 钩子”的 skip 污染失败统计。
+     *
      * @return true 表示实际写入或执行了会话清理；仅记 session 不算。
      */
     static synchronized boolean applyReport(Context context, Map<String, String> data,
@@ -156,6 +160,10 @@ public final class StatusProvider extends ContentProvider {
             String key = entry.getKey();
             String value = entry.getValue();
             if (!ReportProtocol.validKey(key) || !ReportProtocol.isValidValue(value)) {
+                continue;
+            }
+            if (!ReportProtocol.acceptFromProcess(mainProcess, key)) {
+                // 子进程只贡献 hit/entry；reg/skip 只信任主进程。
                 continue;
             }
             if (ReportProtocol.isCountKey(key)) {
@@ -236,11 +244,17 @@ public final class StatusProvider extends ContentProvider {
             if (timestamp instanceof Long) {
                 updatedAt = (Long) timestamp;
             }
+            // 主进程最近一次会话；文件读取侧据此忽略旧会话文件。
+            String session = null;
+            Object storedSession = all.get(PREFS_SESSION);
+            if (storedSession instanceof String) {
+                session = (String) storedSession;
+            }
             Object source = all.get(ReportProtocol.PREFS_SOURCE_KEY);
             if (ReportProtocol.SOURCE_SOCKET.equals(source)) {
-                return ReportState.fromSocket(data, updatedAt);
+                return ReportState.fromSocket(data, updatedAt, session);
             }
-            return ReportState.fromProvider(data, updatedAt);
+            return ReportState.fromProvider(data, updatedAt, session);
         } catch (Throwable t) {
             return ReportState.none();
         }
@@ -262,16 +276,32 @@ public final class StatusProvider extends ContentProvider {
         return readState(context).hit(key);
     }
 
+    /** 失败统计用的开关查询；抽成接口后纯逻辑版本可直接单测。 */
+    @FunctionalInterface
+    interface EnabledLookup {
+        boolean enabled(Feature feature);
+    }
+
     /**
      * 统计“已启用且明确失败”的功能数，供异常横幅使用。
      *
-     * 失败判定同时满足：用户配置为开启；目标进程有回传（reg/skip/hit/entry
-     * 任一非空）；reg 为空或 skip 非空。
-     * 没有回传的功能不计入，避免刚装上或目标应用未启动时误报。
-     * 只在主进程统计，子进程未装 hook 的 skip 不会被误算（Report 只在主进程回传）。
+     * 失败判定同时满足：用户配置为开启；当前会话有回传（reg/skip/hit/entry
+     * 任一非空）；reg 为空或 skip 非空。没有回传的功能不计入，避免刚装上
+     * 或目标应用未启动时误报。
+     *
+     * 进程/会话边界：
+     * - Report 只在目标 App 主进程启动，子进程不再回传 reg/skip；
+     * - {@link #applyReport} 对旧版本子进程上报的 reg./skip. 直接忽略，
+     *   只合并 hit./entry.，因此子进程缺少 UI 钩子的 skip 不会被算成失败；
+     * - FILE_STALE 只是过期文件的展示兜底，直接返回 0，不参与失败统计。
      */
     public static int failedFeatureCount(Context context) {
         if (context == null) {
+            return 0;
+        }
+        ReportState state = readState(context);
+        if (state.source() == ReportState.Source.FILE_STALE) {
+            // 过期文件只用于诊断页展示，不计入失败数。
             return 0;
         }
         ConfigStore store;
@@ -280,14 +310,22 @@ public final class StatusProvider extends ContentProvider {
         } catch (Throwable t) {
             store = null;
         }
+        final ConfigStore configStore = store;
+        return failedFeatureCount(state, f -> configStore != null
+                ? configStore.get(f.key, f.defaultEnabled) : f.defaultEnabled);
+    }
+
+    /** 纯逻辑版本：FILE_STALE 一律 0；只统计已开启、已回传且明确失败的功能。 */
+    static int failedFeatureCount(ReportState state, EnabledLookup lookup) {
+        if (state == null || state.source() == ReportState.Source.FILE_STALE) {
+            return 0;
+        }
         int failed = 0;
-        ReportState state = readState(context);
         for (Feature f : Feature.values()) {
             if (f.blocked()) {
                 continue;
             }
-            boolean enabled = store != null
-                    ? store.get(f.key, f.defaultEnabled) : f.defaultEnabled;
+            boolean enabled = lookup != null ? lookup.enabled(f) : f.defaultEnabled;
             if (!enabled) {
                 continue;
             }

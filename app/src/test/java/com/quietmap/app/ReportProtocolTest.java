@@ -134,6 +134,22 @@ public class ReportProtocolTest {
     }
 
     @Test
+    public void nonMainProcessOnlyAcceptsCountKeys() {
+        assertTrue("主进程可写 reg",
+                ReportProtocol.acceptFromProcess(true, "reg.splash_gate"));
+        assertTrue("主进程可写 skip",
+                ReportProtocol.acceptFromProcess(true, "skip.splash_gate"));
+        assertTrue("子进程的 hit 仍然有效",
+                ReportProtocol.acceptFromProcess(false, "hit.splash_gate"));
+        assertTrue("子进程的 entry 仍然有效",
+                ReportProtocol.acceptFromProcess(false, "entry.splash_gate"));
+        assertFalse("子进程的 reg 必须忽略",
+                ReportProtocol.acceptFromProcess(false, "reg.splash_gate"));
+        assertFalse("子进程的 skip 必须忽略",
+                ReportProtocol.acceptFromProcess(false, "skip.splash_gate"));
+    }
+
+    @Test
     public void valueChangedOnlyWhenActuallyWritten() {
         assertTrue(ReportProtocol.valueChanged("reg.a", null, "x"));
         assertFalse(ReportProtocol.valueChanged("reg.a", "x", "x"));
