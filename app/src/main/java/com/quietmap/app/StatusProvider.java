@@ -53,7 +53,7 @@ public final class StatusProvider extends ContentProvider {
     private static final String VALUE_PREFIX = "v:";
 
     /** 唯一允许写入诊断数据的宿主包名。 */
-    private static final String TARGET_PACKAGE = "com.autonavi.minimap";
+    static final String TARGET_PACKAGE = "com.autonavi.minimap";
 
     private static final int MAX_ITEMS = 800;
 

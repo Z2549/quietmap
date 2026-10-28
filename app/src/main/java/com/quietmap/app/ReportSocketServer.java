@@ -2,8 +2,10 @@ package com.quietmap.app;
 
 import android.annotation.SuppressLint;
 import android.content.Context;
+import android.net.Credentials;
 import android.net.LocalServerSocket;
 import android.net.LocalSocket;
+import android.os.Process;
 import android.util.Log;
 
 import java.io.IOException;
@@ -118,6 +120,10 @@ public final class ReportSocketServer {
             logWarn("qmreport socket reject reason=no context");
             return;
         }
+        if (!isAllowedPeer(socket, context)) {
+            logWarn("qmreport socket reject reason=peer uid");
+            return;
+        }
         try {
             socket.setSoTimeout(READ_TIMEOUT_MS);
         } catch (Throwable ignored) {
@@ -151,6 +157,41 @@ public final class ReportSocketServer {
         } catch (Throwable t) {
             logWarn("qmreport socket read failed: " + describe(t));
         }
+    }
+
+    /**
+     * 只接受高德目标进程或模块自身的连接。抽象命名空间 socket 对本机所有应用可见，
+     * 不校验 UID 时任意应用都能伪造/清空诊断数据。
+     */
+    static boolean isAllowedPeer(LocalSocket socket, Context context) {
+        try {
+            Credentials credentials = socket.getPeerCredentials();
+            if (credentials == null) {
+                return false;
+            }
+            int uid = credentials.getUid();
+            if (uid == Process.myUid()) {
+                return true;
+            }
+            String[] packages = context.getPackageManager().getPackagesForUid(uid);
+            return isAllowedPackage(packages, context.getPackageName());
+        } catch (Throwable t) {
+            logWarn("qmreport socket peer credentials failed: " + describe(t));
+            return false;
+        }
+    }
+
+    static boolean isAllowedPackage(String[] packages, String modulePackage) {
+        if (packages == null) {
+            return false;
+        }
+        for (String pkg : packages) {
+            if (StatusProvider.TARGET_PACKAGE.equals(pkg)
+                    || (modulePackage != null && modulePackage.equals(pkg))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** 首次 5 条 + 之后每 60 秒一条；三个目标进程轮流上报时不刷屏。 */

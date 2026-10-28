@@ -49,6 +49,11 @@ public final class ServiceBridge {
         XposedServiceHelper.registerListener(new XposedServiceHelper.OnServiceListener() {
             @Override
             public void onServiceBind(XposedService service) {
+                // 已知边界：XposedProvider 由 libxposed 依赖提供（final/exported），
+                // 其 call() 无法插入 Binder.getCallingUid() 校验，本机应用理论上可
+                // 伪造框架 binder。这里只做 api>=101 的合理性检查并保持 fail-open；
+                // 该风险不能提权，最坏结果是配置读写落到伪造服务。诊断数据通道
+                // （Provider/socket）另有 UID 校验。
                 // 框架会先投一个 api=0 且无 PROP_CAP_REMOTE 的占位 binder，随后才投真正的
                 // （实测日志：先 api=0，几百毫秒后 api=102）。占位的必须丢弃，
                 // 否则 getFrameworkProperties() 缺失会被误判成框架不支持远程配置。
