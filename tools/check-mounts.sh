@@ -22,6 +22,7 @@
 #
 # 缓存按 APK 内容区分：默认写仓库内 tools/.dexsql-cache/<sha256前16位>/，
 # 换 APK 自动换目录，不会把旧包的结果当成新包的（也不往 APK 目录写东西）。
+# 目录内 cache.meta 记录路径/大小/mtime/sha256；--cache-dir 复用时指纹不符会重建。
 #
 # 判定规则：
 #   OK   = 类和方法都在，且方法完整签名没变，hook 大概还能挂上
@@ -237,26 +238,68 @@ sha256_of() {
     sha256sum "$1" 2>/dev/null | cut -c1-16
   elif command -v shasum >/dev/null 2>&1; then
     shasum -a 256 "$1" 2>/dev/null | cut -c1-16
+  elif command -v openssl >/dev/null 2>&1; then
+    openssl dgst -sha256 "$1" 2>/dev/null | awk '{print substr($NF, 1, 16)}'
   else
     return 1
   fi
 }
+file_size() {
+  wc -c < "$1" 2>/dev/null | tr -d '[:space:]'
+}
+file_mtime() {
+  stat -c %Y "$1" 2>/dev/null \
+    || stat -f %m "$1" 2>/dev/null \
+    || date -r "$1" +%s 2>/dev/null
+}
 
 APK_SHA="$(sha256_of "$TARGET_APK")"
 [ -n "$APK_SHA" ] \
-  || { echo "ERROR: cannot compute APK sha256 (need sha256sum or shasum)" >&2; exit 2; }
+  || { echo "ERROR: cannot compute APK sha256 (need sha256sum, shasum or openssl)" >&2; exit 2; }
+APK_SIZE="$(file_size "$TARGET_APK")"
+APK_MTIME="$(file_mtime "$TARGET_APK")"
+APK_ABS="$(cd "$(dirname "$TARGET_APK")" 2>/dev/null && pwd)/$(basename "$TARGET_APK")"
 
 # 缓存目录按 APK 内容哈希区分：换包必然换目录，不会再拿旧包的缓存查询新包。
+# 另外写 cache.meta 记录路径/大小/mtime/sha256：即使 --cache-dir 指向同一目录，
+# 同路径替换 APK 也会因指纹不匹配而重建缓存。
 [ -z "$CACHE_DIR" ] && CACHE_DIR="$CACHE_ROOT/$APK_SHA"
 mkdir -p "$CACHE_DIR" \
   || { echo "ERROR: cannot create cache dir: $CACHE_DIR" >&2; exit 2; }
 CACHE="$CACHE_DIR/cache.dxc2"
+META="$CACHE_DIR/cache.meta"
 
+meta_value() {
+  [ -f "$META" ] || return 1
+  sed -n "s/^$1=//p" "$META" | head -1
+}
+meta_matches() {
+  [ -f "$META" ] || return 1
+  [ "$(meta_value path)" = "$APK_ABS" ] || return 1
+  [ "$(meta_value size)" = "$APK_SIZE" ] || return 1
+  [ "$(meta_value sha256)" = "$APK_SHA" ] || return 1
+  return 0
+}
+write_meta() {
+  local tmp="$META.tmp"
+  {
+    printf 'version=2\n'
+    printf 'path=%s\n' "$APK_ABS"
+    printf 'size=%s\n' "$APK_SIZE"
+    printf 'mtime=%s\n' "${APK_MTIME:-unknown}"
+    printf 'sha256=%s\n' "$APK_SHA"
+  } > "$tmp" && mv -f "$tmp" "$META"
+}
 
+if [ -f "$CACHE" ] && ! meta_matches; then
+  echo "APK 指纹与缓存元数据不匹配（同路径替换或 --cache-dir 复用），重建缓存..." >&2
+  rm -f "$CACHE" "$META"
+fi
 if [ ! -f "$CACHE" ]; then
   echo "== 首次为该 apk 建 DexSQL 缓存（约 40 秒）..."
   "$DEXSQL" prepare-cache --input "$TARGET_APK" --output "$CACHE_DIR" >/dev/null 2>&1
   [ -f "$CACHE" ] || { echo "建缓存失败: $CACHE" >&2; exit 1; }
+  write_meta || echo "WARN: cannot write cache meta: $META" >&2
 fi
 
 # 查询失败（非 0 退出码）必须中止：不能把 dexsql 报错当成 0 行结果，
@@ -281,6 +324,7 @@ q() {
       echo "dexsql 查询失败（exit $rc），缓存疑似失效，重建后重试一次..." >&2
       rm -f "$CACHE"
       "$DEXSQL" prepare-cache --input "$TARGET_APK" --output "$CACHE_DIR" >/dev/null 2>&1
+      [ -f "$CACHE" ] && write_meta
       retried=1
       continue
     fi
@@ -384,7 +428,7 @@ Lcom/autonavi/minimap/ajx3/modules/internalmodules/AjxModuleLocalStorage;->setIt
 
 echo
 echo "APK: $TARGET_APK"
-echo "SHA256(前16位): $APK_SHA"
+echo "APK 指纹: size=$APK_SIZE mtime=${APK_MTIME:-unknown} sha256(前16位)=$APK_SHA"
 echo "缓存: $CACHE"
 # ── 版本校验：与清单实测版本比对，只警告不中断 ────────────────────
 EXPECTED_VERSION="17.01.0.2012"
@@ -462,6 +506,7 @@ EOF
 
 total=$((ok + sig + gone))
 echo
+echo "签名校验: 完整描述符（方法名 + 参数 + 返回类型），无仅名称条目"
 echo "汇总: 共 $total 项 — OK $ok / SIG $sig / GONE $gone"
 if [ "$sig" -eq 0 ] && [ "$gone" -eq 0 ]; then
   echo "二十二钩子挂载点全部存活。"
