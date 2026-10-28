@@ -47,8 +47,13 @@ import io.github.libxposed.api.XposedModule;
  *    "notify guide pass (unsafe rewrite skipped)"，避免新增定位弹窗或丢掉复合
  *    权限串里的相机/存储等权限。
  *
- * isNotificationPermission：空/null 为 false；toUpperCase(Locale.ROOT) 后
- * 包含 POST_NOTIFICATIONS 或 NOTIFICATION 即命中。
+ * isNotificationPermission：只认已知通知权限的精确名字（大小写不敏感、忽略
+ * 首尾空白）：POST_NOTIFICATIONS，以及旧的 NOTIFICATION / NOTIFICATION_*
+ * 常量；ACCESS_NOTIFICATION_POLICY 虽然名字含 NOTIFICATION，但属于勿扰策略
+ * 访问权限，显式排除。复合权限串（逗号/分号/竖线/内部空白分隔）一律不命中，
+ * 避免把多权限引导当成单一通知权限。入参支持 String / String[] /
+ * Iterable（List、Set），数组/集合中任一元素命中即命中；未知类型按 fail-open
+ * 返回 false（不改变原引导）。
  */
 final class NotifyGuideHooks {
 
@@ -66,6 +71,16 @@ final class NotifyGuideHooks {
     private static final String PROXY_PERMISSION_TYPE = "location";
     private static final String FIELD_PERMISSION = "guidePermissionStr";
     private static final String FIELD_PERMISSION_LIST = "permissionList";
+
+    /** Android 13+ 通知运行时权限。 */
+    private static final String POST_NOTIFICATIONS = "POST_NOTIFICATIONS";
+    /** 旧权限引导库使用的通知权限名（如 android.permission.NOTIFICATION）。 */
+    private static final String LEGACY_NOTIFICATION = "NOTIFICATION";
+    /** 旧 NOTIFICATION_* 常量族（如 NOTIFICATION_LISTENER）。 */
+    private static final String LEGACY_NOTIFICATION_PREFIX = "NOTIFICATION_";
+    /** 勿扰访问权限：名字含 NOTIFICATION，但不是通知发布权限，必须排除。 */
+    private static final String ACCESS_NOTIFICATION_POLICY =
+            "android.permission.ACCESS_NOTIFICATION_POLICY";
 
     /** 真机诊断日志限流窗口：同一 key 10 秒内最多一条。 */
     private static final long LOG_INTERVAL_MS = 10_000L;
@@ -230,9 +245,7 @@ final class NotifyGuideHooks {
         }
         if (permission != null) {
             try {
-                Object value = permission.get(self);
-                if (value instanceof String
-                        && isNotificationPermission((String) value)) {
+                if (isNotificationPermission(permission.get(self))) {
                     return true;
                 }
             } catch (Throwable ignored) {
@@ -241,13 +254,8 @@ final class NotifyGuideHooks {
         }
         if (permissionList != null) {
             try {
-                Object value = permissionList.get(self);
-                if (value instanceof String[]) {
-                    for (String item : (String[]) value) {
-                        if (isNotificationPermission(item)) {
-                            return true;
-                        }
-                    }
+                if (isNotificationPermission(permissionList.get(self))) {
+                    return true;
                 }
             } catch (Throwable ignored) {
                 // 字段读不到：按非通知引导处理
@@ -256,37 +264,83 @@ final class NotifyGuideHooks {
         return false;
     }
 
-    /** 空/null 不命中；大写后包含 POST_NOTIFICATIONS 或 NOTIFICATION 即命中。 */
-    static boolean isNotificationPermission(String permission) {
-        if (permission == null || permission.isEmpty()) {
+    /**
+     * 是否是已知通知权限。String 走精确单值匹配；String[]/Iterable（List、Set）
+     * 中任一元素命中即命中；其他未知类型按 fail-open 返回 false，不拦截原引导。
+     */
+    static boolean isNotificationPermission(Object permission) {
+        if (permission == null) {
             return false;
         }
-        String upper = permission.toUpperCase(Locale.ROOT);
-        return upper.contains("POST_NOTIFICATIONS") || upper.contains("NOTIFICATION");
+        if (permission instanceof String) {
+            return isNotificationPermissionName((String) permission);
+        }
+        if (permission instanceof String[]) {
+            for (String item : (String[]) permission) {
+                if (isNotificationPermissionName(item)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        if (permission instanceof Iterable<?>) {
+            for (Object item : (Iterable<?>) permission) {
+                if (item instanceof String
+                        && isNotificationPermissionName((String) item)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        return false;
     }
 
     /**
-     * 单一通知权限：去空白后不含逗号/分号/竖线，且不包含内部空白。
-     * 复合串（如 "POST_NOTIFICATIONS,CAMERA"）绝不能整体改写成 location，
-     * 否则会丢掉相机/存储等权限，或把未知权限串变成另一次弹窗。
+     * 单个权限名精确匹配：忽略首尾空白与大小写；复合串直接不命中。
+     * 只认 POST_NOTIFICATIONS 与旧的 NOTIFICATION / NOTIFICATION_* 常量，
+     * 并显式排除 ACCESS_NOTIFICATION_POLICY。
      */
-    static boolean isSingleNotificationPermission(String permission) {
+    private static boolean isNotificationPermissionName(String permission) {
         if (permission == null) {
             return false;
         }
         String trimmed = permission.trim();
-        if (trimmed.isEmpty()
-                || trimmed.indexOf(',') >= 0
-                || trimmed.indexOf(';') >= 0
-                || trimmed.indexOf('|') >= 0) {
+        if (trimmed.isEmpty() || isCompositePermission(trimmed)) {
             return false;
         }
-        for (int i = 0; i < trimmed.length(); i++) {
-            if (Character.isWhitespace(trimmed.charAt(i))) {
-                return false;
+        String upper = trimmed.toUpperCase(Locale.ROOT);
+        if (ACCESS_NOTIFICATION_POLICY.equals(upper)) {
+            return false;
+        }
+        // 旧常量可能带包名前缀（android.permission.NOTIFICATION），
+        // 也可能只有简单名（NOTIFICATION）；按最后一段比较。
+        String leaf = upper.substring(upper.lastIndexOf('.') + 1);
+        return POST_NOTIFICATIONS.equals(leaf)
+                || LEGACY_NOTIFICATION.equals(leaf)
+                || leaf.startsWith(LEGACY_NOTIFICATION_PREFIX);
+    }
+
+    /** 复合权限串：含逗号/分号/竖线或内部空白（调用前已 trim）。 */
+    private static boolean isCompositePermission(String permission) {
+        if (permission == null) {
+            return true;
+        }
+        for (int i = 0; i < permission.length(); i++) {
+            char c = permission.charAt(i);
+            if (c == ',' || c == ';' || c == '|' || Character.isWhitespace(c)) {
+                return true;
             }
         }
-        return isNotificationPermission(trimmed);
+        return false;
+    }
+
+    /**
+     * 单一通知权限：复合串（如 "POST_NOTIFICATIONS,CAMERA"）绝不能整体改写成
+     * location，否则会丢掉相机/存储等权限，或把未知权限串变成另一次弹窗。
+     * 与 isNotificationPermission 共用同一套精确匹配规则。
+     */
+    static boolean isSingleNotificationPermission(String permission) {
+        return isNotificationPermission(permission);
     }
 
     /**
