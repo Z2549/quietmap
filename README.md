@@ -2,7 +2,7 @@
 
 让高德地图安静下来的 LSPosed 模块：后台净化、数据层断源、收敛弹窗与统计上报。
 
-> 当前版本 **0.8.1**（2026-10-28，versionCode 10）。
+> 当前版本 **0.8.2**（2026-10-29，versionCode 11）。
 > 目标应用：**高德地图 17.01.0.2012**（`com.autonavi.minimap`）。
 > 与高德地图官方无任何关联，仅供学习、研究和个人设备使用。
 
@@ -21,7 +21,7 @@
 
 ## 安装
 
-1. 安装 `quietmap-0.8.1.apk`。
+1. 安装 `quietmap-0.8.2.apk`。
 2. 在 LSPosed 管理器中启用「静途」，作用域勾选「高德地图」。
 3. 强制停止并重新打开高德地图。
 4. 打开模块 App，确认状态卡显示「已激活」。
@@ -76,9 +76,9 @@
 |---|---|---|
 | AD-12 运营活动 | 已注册，真实场景未验证 | 3 个挂载点在真机全部 `registered`，但未触发 88VIP/运营弹窗场景，没有 `ops activity` 命中日志，不宣称已生效 |
 | UI-05 通知权限引导 | 已注册，真实场景未验证 | 3 个挂载点在真机全部 `registered`；通知权限已撤销但 `notify guide` 无命中，无法排除系统频控/`noLongerPrompt`，不宣称已生效 |
-| UI-06 消息中心 | 通过 | 已定位 AJX 真实链路：`AjxModuleBadge#getAllSessionList` 返回 `convList`、`getBadgeInfo("messagetab")` 提供角标、`AjxModuleLocalStorage#getItemSync("message_tab", "recentlyMsgList-*")` 为最近消息缓存；真机开启为空列表/角标 0，关闭恢复列表/角标 14，无 FATAL/ANR |
+| UI-06 消息中心 | 0.8.1 真机通过；0.8.2 未复验 | 已定位 AJX 真实链路：`AjxModuleBadge#getAllSessionList` 返回 `convList`、`getBadgeInfo("messagetab")` 提供角标、`AjxModuleLocalStorage#getItemSync("message_tab", "recentlyMsgList-*")` 为最近消息缓存；0.8.1 真机开启为空列表/角标 0，关闭恢复列表/角标 14，无 FATAL/ANR。0.8.2 新增消息页/我的页 `jsPath` 门控，尚未真机复验 |
 
-`socket` 与 `Provider` 诊断回传的真实状态：目标进程优先尝试抽象命名空间 LocalSocket，失败回退 Provider，再失败写文件。HyperOS 真机上 socket 报 `socket not created`，**不可用**；Provider 通道已实测可用（`transport=provider` 持续刷新），因此 socket 失败不再作为阻断条件。Android 11+ 文件通道仅作调试/旧系统兜底。
+`socket` 与 `Provider` 诊断回传的真实状态：目标进程优先尝试抽象命名空间 LocalSocket，失败回退 Provider，再失败写文件。HyperOS 真机上 socket 报 `socket not created`，**不可用**；Provider 通道已实测可用（`transport=provider` 持续刷新），因此 socket 失败不再作为阻断条件。Android 11+ 文件通道仅作调试/旧系统兜底。0.8.2 起 socket 接受连接前校验 peer UID，只接受高德目标进程或模块自身。
 
 ## 设置页
 
@@ -87,7 +87,7 @@
 - **状态卡**：正在连接框架… / 未激活 / 框架已连接 / 已激活，四态不新增第五态；副文案显示框架 API、目标版本与 remote prefs 可用性。
 - **异常横幅**：目标版本未适配，或已启用且明确失败的功能数 ≥2 时显示；目标应用未安装、只有 1 项失败、没有诊断数据时不显示。
 - **功能开关**：按 AD → UI → PV 分组；标题与摘要来自功能清单，值写入框架 remote prefs；22 项全部可切换。
-- **诊断页**：逐功能显示 `registered · entry N · hit N · skip 原因`，无数据显示 `—`；`entry` 表示钩子入口被调用次数，用于区分“从未调用”和“调用了但未命中”；页首显示数据来源与刷新时间，页尾提供「刷新」「复制诊断信息」；进入页面与 `onResume` 刷新，不自动轮询。
+- **诊断页**：逐功能显示 `registered · entry N · hit N · skip 原因`（整体失效时追加 `critical`），无数据显示 `—`；`entry` 表示钩子入口被调用次数，用于区分“从未调用”和“调用了但未命中”；`critical` 表示该功能没有任何成功安装的挂载点，计入异常横幅，普通 `skip`（可选方法缺失）只展示不计失败；超过 10 分钟没有新回传的数据按“未知”处理。页首显示数据来源与刷新时间，页尾提供「刷新」「复制诊断信息」；进入页面与 `onResume` 刷新，不自动轮询。
 - **关于页**：模块名、版本名/versionCode、目标应用与适配版本、源码、四模块互链、免责声明、许可证。
 - **页脚**：重启生效与兼容版本提示。
 
@@ -108,7 +108,7 @@
 bash tools/check-mounts.sh "E:\path\to\amap.apk"
 ```
 
-输出 `OK` / `SIG` / `GONE` 三态，共 **63 项**。DexSQL 缓存按 APK sha256 前 16 位隔离（`tools/.dexsql-cache/<sha256>/`），换包不会复用旧缓存；查询失败（dexsql 非 0 退出或结果异常）会直接中止，不会把错误结果当成 0 行而误报 `GONE`。脚本会打印 APK 的 versionName，非 **17.01.0.2012** 时给出 WARN（只提示、不中断）。混淆挂载点（`Lze5#attemptRequestData`、`La8#run`、`Lcx1#addToQueue`、`Llt1#IDeliveryDisplay.start`）随版本改名的风险最高，失效时模块只记 `skip`，不会影响其余钩子。
+输出 `OK` / `SIG` / `GONE` 三态，共 **63 项**。DexSQL 缓存按 APK sha256 前 16 位隔离（`tools/.dexsql-cache/<sha256>/`），并在 `cache.meta` 记录路径/大小/mtime/sha256：换包、同路径替换或复用 `--cache-dir` 时指纹不符会自动重建，不会把旧包结果当成新包；查询失败（dexsql 非 0 退出或结果异常）会直接中止，不会把错误结果当成 0 行而误报 `GONE`。脚本会打印 APK 的 versionName，非 **17.01.0.2012** 时给出 WARN（只提示、不中断）。混淆挂载点（`Lze5#attemptRequestData`、`La8#run`、`Lcx1#addToQueue`、`Llt1#IDeliveryDisplay.start`）随版本改名的风险最高，失效时模块只记 `skip`，不会影响其余钩子。
 
 ## 稳定性设计（摘要）
 
@@ -119,15 +119,18 @@ bash tools/check-mounts.sh "E:\path\to\amap.apk"
 - 框架类黑名单：`android.` / `java.` / `dalvik.` / `androidx.` / `kotlin.` 开头的类拒绝 hook。
 - 定位失败只记 `<featureId> skip: ...`，绝不向外抛；安装整段再包一层 `try/catch(Throwable)`。
 - 只做「不调用 / 返回常量」，不修改复杂业务状态；开关只认 remote prefs。
+- 诊断通道双重校验：Provider 校验 `Binder.getCallingUid`，socket 校验 peer UID；子进程只贡献 hit/entry，旧 session 与过期数据不参与失败统计。
+- 配置写入异步 `commit` 并校验真实返回值，失败回滚 UI；框架 service 断开后立即重绘并置灰开关。
 
 ## 已知限制
 
 - `libxposed` 的 `XposedProvider` 在 `SendBinder` 调用上没有调用方认证，属框架约定风险（不影响本模块自身逻辑）。
-- 诊断 Provider 仅接受高德 UID：`Binder.getCallingUid` + `getPackagesForUid` 必须命中 `com.autonavi.minimap`。
+- 诊断 Provider 仅接受高德 UID：`Binder.getCallingUid` + `getPackagesForUid` 必须命中 `com.autonavi.minimap`；诊断 socket 同样校验 peer UID，只接受高德或模块自身，其他应用的连接被拒绝。
 - 诊断回传在 HyperOS 上 socket 不可用（`socket not created`），实际可用的是 Provider 通道；文件通道仅调试/旧系统兜底。socket 失败会回退，不阻断诊断。
 - UI-05 通知权限引导与 AD-12 运营活动已在真机注册挂载点，但真实场景未验证（无命中/未触发），不能视为已生效。
 - UI-06 消息中心通过 AJX badge/localStorage bridge 清空消息页会话列表与消息图标角标；会一并隐藏账号安全、公共交通动态等真实通知，可单独关闭。仅保证高德 17.01.0.2012，并且只作用于消息页/我的页。
-- DexKit 扫描仅在主进程启用；非主进程（`:locationservice`、`:widgetProvider`）走类名/方法名兜底。
+- 诊断会话隔离：session 不一致的旧文件与启动时间更早的迟到批次会被忽略；目标进程重启后、首次回传前诊断页可能显示 `—`，属预期行为。
+- DexKit 扫描仅在主进程启用；非主进程（`:locationservice`、`:widgetProvider`）走类名/方法名兜底，且不再回传 reg/skip。
 - release 缺少 `keystore.properties` 时构建直接失败（`assembleRelease` / `bundleRelease` 抛 `GradleException`），避免产出 debug 签名的正式包。
 
 ## 全量覆盖矩阵
@@ -203,8 +206,10 @@ JAVA_HOME="F:/Program Files/Java/jdk-21" ./gradlew test assembleDebug assembleRe
 bash tools/check-mounts.sh
 ```
 
+当前基线：单测 **215** 个用例通过（`:app:testDebugUnitTest`，0 失败 / 0 跳过）；`:app:lintDebug` 0 error；`tools/verify-apk.sh` PASS；`tools/check-mounts.sh` 对高德 17.01.0.2012 63/63 OK。
+
 工具链：AGP 8.13.2 + Gradle wrapper 8.13 + JDK 21（构建），Java source/target 17，compileSdk 37 / minSdk 29 / targetSdk 36。
-release 产物：`app/build/outputs/apk/release/quietmap-0.8.1.apk`（R8 minify + shrinkResources）。
+release 产物：`app/build/outputs/apk/release/quietmap-0.8.2.apk`（R8 minify + shrinkResources）。
 签名读取仓库根目录 `keystore.properties`；缺少该文件时 release 构建直接失败，不会产出用 debug 证书签名的包。
 
 ## GPL 红线
