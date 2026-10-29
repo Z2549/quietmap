@@ -48,6 +48,23 @@ versionCode: `11`
 大小: `4,077,344 字节`
 SHA-256: `a59d7c8357a290d2ade1b2345456b87159af3ddda84165b7223da397f159259b`
 
+## 未发布
+
+### 新增
+
+- **关于页「隐藏桌面图标」开关**：桌面图标的 LAUNCHER 入口从 `MainActivity` 拆到 `activity-alias`（`com.quietmap.app.LauncherEntry`），`MainActivity` 改挂 `de.robv.android.xposed.category.MODULE_SETTINGS`。开关只禁用 alias，主入口仍在，隐藏后可从 LSPosed 管理器打开关于页恢复；`DONT_KILL_APP` 保证改组件状态不会连带杀进程。
+- 新增 `LauncherIconTest`：状态映射纯函数 6 条 + manifest 契约 1 条（alias 存在、`targetActivity` 指向 `MainActivity`、`MainActivity` 保留 `MODULE_SETTINGS`）。
+
+### 注意
+
+- ⚠️ **升级后，桌面上通过「长按图标 → 添加到桌面」创建的旧快捷方式会一次性失效**：`MainActivity` 不再带 `LAUNCHER` intent-filter，旧快捷方式指向的组件已无该入口。删掉旧快捷方式、从应用抽屉重新拖一个即可，模块功能本身不受影响。
+
+### 验证
+
+- 单测 195 个用例通过（0 失败 / 0 跳过）；`:app:lintDebug` 通过。
+- 真机（24129PN74C / HyperOS 4.0 / Android 17 / LSPosed 2.2.1）：打开开关 → `disabledComponents` 出现 `LauncherEntry`、`resolve-activity -c android.intent.category.LAUNCHER` 返回 `No activity found`；关闭 → 恢复为 `LauncherEntry`。
+- 隐藏状态下 `-c de.robv.android.xposed.category.MODULE_SETTINGS` 仍解析到 `MainActivity`（自锁风险已实测排除）；切到别的 tab 再回关于页，开关状态与系统一致；无 FATAL/ANR。
+
 ## v0.8.1 — 2026-10-28
 
 消息中心版本（versionCode 10）：UI-06 从 blocked 恢复可用，基于真机逆向改用 AJX badge/localStorage bridge 清空消息页会话列表与消息图标角标；功能总数 22 项全部可用。
