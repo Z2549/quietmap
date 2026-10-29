@@ -30,7 +30,11 @@ import java.util.concurrent.Executors;
  * value 有长度上限。不存任何敏感信息。
  *
  * key 形如 reg.bg_msg_fetch / hit.bg_msg_fetch / entry.bg_msg_fetch /
- * skip.bg_msg_fetch，value 对应注册标签、命中计数、入口计数、跳过原因。
+ * skip.bg_msg_fetch / crit.bg_msg_fetch，value 对应注册标签、命中计数、
+ * 入口计数、跳过原因与整体失效标记。
+ *
+ * 会话语义：新主进程 session 首次写入前清掉上一会话数据；迟到的旧会话整批
+ * 丢弃。超过 {@link #REPORT_TTL_MS} 没有新回传的数据视为过期，失败计数按 0。
  */
 public final class StatusProvider extends ContentProvider {
 
@@ -48,6 +52,17 @@ public final class StatusProvider extends ContentProvider {
     public static final String PREFIX_HIT = ReportProtocol.PREFIX_HIT;
     public static final String PREFIX_ENTRY = ReportProtocol.PREFIX_ENTRY;
     public static final String PREFIX_SKIP = ReportProtocol.PREFIX_SKIP;
+    public static final String PREFIX_CRIT = ReportProtocol.PREFIX_CRIT;
+
+    /** 回传数据的新鲜度上限，与 ReportProtocol 的默认 TTL 保持一致。 */
+    static final long REPORT_TTL_MS = ReportProtocol.DEFAULT_TTL_MS;
+
+    /**
+     * 内容未变化时刷新 meta.updated_at 的最短间隔。Report 每 60 秒心跳重发
+     * 完整快照，这里每 5 分钟落一次时间戳，避免 TTL 把仍在运行的目标进程
+     * 判成“未知”，也避免每次心跳都写 prefs。
+     */
+    static final long REPORT_HEARTBEAT_MS = 5 * 60_000L;
 
     /** 落盘时统一加 "v:" 前缀，避免与旧版本可能存在的同名键冲突。 */
     private static final String VALUE_PREFIX = "v:";
@@ -132,11 +147,16 @@ public final class StatusProvider extends ContentProvider {
     /**
      * 诊断数据落到 SharedPreferences 的唯一入口：Provider.call 与
      * {@link ReportSocketServer} 共用，保证两条通道的合并语义一致
-     * （hit 取历史最大、reg/skip 覆盖、主进程新 session 清理旧数据）。
+     * （hit/entry 取历史最大、reg/skip/crit 最新值覆盖、主进程新 session
+     * 清理旧数据、迟到的旧会话整批拒绝）。
      *
-     * 进程边界：非主进程只允许合并 hit./entry.，reg./skip. 直接丢弃。
+     * 进程边界：非主进程只允许合并 hit./entry.，reg./skip./crit. 直接丢弃。
      * Report 现在只在主进程启动，这里兜住旧版本子进程仍在上报的数据，
      * 避免“子进程缺少 UI 钩子”的 skip 污染失败统计。
+     *
+     * 时间戳：主进程的实际变更会刷新 meta.updated_at；内容未变的 5 分钟心跳
+     * 也刷新一次，使 failure TTL 不会把仍在正常运行的目标进程判成“未知”。
+     * 子进程只合并计数，不刷新时间戳，避免旧 reg/skip 被计数“续命”。
      *
      * @return true 表示实际写入或执行了会话清理；仅记 session 不算。
      */
@@ -147,15 +167,24 @@ public final class StatusProvider extends ContentProvider {
             return false;
         }
         SharedPreferences sp = context.getSharedPreferences(PREFS, 0);
+        String storedSession = sp.getString(PREFS_SESSION, null);
+        if (ReportProtocol.isStaleSession(storedSession, session)) {
+            // 迟到的旧会话整批拒绝：旧进程可能在新主进程之后才把批次写进来，
+            // 不能让它覆盖/清空新会话的 reg/skip/crit。
+            return false;
+        }
         SharedPreferences.Editor editor = sp.edit();
         boolean reset = ReportProtocol.shouldResetSession(
-                sp.getString(PREFS_SESSION, null), session, mainProcess);
+                storedSession, session, mainProcess);
         if (reset) {
-            // 目标 App 主进程已重启：旧会话的 reg/skip/hit 全部作废，
+            // 目标 App 主进程已重启：旧会话的 reg/skip/hit/entry/crit 全部作废，
             // 避免上一轮运行的 skip 永久保留并伪装成新数据。
             editor.clear();
         }
+        long now = System.currentTimeMillis();
+        long storedUpdatedAt = sp.getLong(PREFS_UPDATED_AT, 0L);
         boolean changed = false;
+        boolean accepted = false;
         for (Map.Entry<String, String> entry : data.entrySet()) {
             String key = entry.getKey();
             String value = entry.getValue();
@@ -163,9 +192,10 @@ public final class StatusProvider extends ContentProvider {
                 continue;
             }
             if (!ReportProtocol.acceptFromProcess(mainProcess, key)) {
-                // 子进程只贡献 hit/entry；reg/skip 只信任主进程。
+                // 子进程只贡献 hit/entry；reg/skip/crit 只信任主进程。
                 continue;
             }
+            accepted = true;
             if (ReportProtocol.isCountKey(key)) {
                 // 命中/入口计数取历史最大值：高德多进程各自回传，取 max 不会重复累加，
                 // 也不会被另一进程的低计数覆盖回去。新会话从 0 开始。
@@ -180,6 +210,8 @@ public final class StatusProvider extends ContentProvider {
                     changed = true;
                 }
             } else {
+                // reg/skip/crit 以最新值覆盖（空串也覆盖）：目标进程重开后，
+                // 本次没有 skip/crit 的功能会回传空串，必须清掉上一次会话的旧值。
                 String existing = reset ? null
                         : sp.getString(VALUE_PREFIX + key, null);
                 if (ReportProtocol.valueChanged(key, existing, value)) {
@@ -191,17 +223,20 @@ public final class StatusProvider extends ContentProvider {
         if (mainProcess && session != null && !session.isEmpty()) {
             editor.putString(PREFS_SESSION, session);
         }
-        // 只有实际写入（含会话切换清理）才刷新时间戳；否则旧值不能被“盖上”
-        // 一个当前时间戳而显得新鲜。
-        if (changed) {
-            editor.putLong(PREFS_UPDATED_AT, System.currentTimeMillis());
+        // 实际写入（含会话切换清理）刷新时间戳；内容未变的主进程心跳每 5 分钟
+        // 刷新一次，避免 TTL 把运行中的目标进程判成过期。
+        boolean heartbeat = mainProcess && accepted
+                && !ReportProtocol.isFresh(reset ? 0L : storedUpdatedAt,
+                        now, REPORT_HEARTBEAT_MS);
+        if (changed || heartbeat) {
+            editor.putLong(PREFS_UPDATED_AT, now);
         }
         if (changed || reset) {
             // 记录最后一个真正写入数据的通道，诊断页据此显示 socket / Provider。
             editor.putString(ReportProtocol.PREFS_SOURCE_KEY,
                     source != null ? source : ReportProtocol.SOURCE_PROVIDER);
         }
-        boolean wrote = changed || reset
+        boolean wrote = changed || reset || heartbeat
                 || (mainProcess && session != null && !session.isEmpty());
         if (wrote) {
             editor.apply();
@@ -285,15 +320,18 @@ public final class StatusProvider extends ContentProvider {
     /**
      * 统计“已启用且明确失败”的功能数，供异常横幅使用。
      *
-     * 失败判定同时满足：用户配置为开启；当前会话有回传（reg/skip/hit/entry
-     * 任一非空）；reg 为空或 skip 非空。没有回传的功能不计入，避免刚装上
-     * 或目标应用未启动时误报。
+     * 失败判定（见 {@link ReportProtocol#featureFailed}）：用户配置为开启；
+     * 当前会话有回传（reg/skip/hit/entry 任一非空）；且 reg 为空（没有任何
+     * 成功挂载点）或 crit=1（主锚点整体失效）。普通 skip 属于可选锚点缺失，
+     * 只用于诊断页展示，不再计入横幅。
      *
      * 进程/会话边界：
-     * - Report 只在目标 App 主进程启动，子进程不再回传 reg/skip；
+     * - Report 只在目标 App 主进程启动，子进程不再回传 reg/skip/crit；
      * - {@link #applyReport} 对旧版本子进程上报的 reg./skip. 直接忽略，
      *   只合并 hit./entry.，因此子进程缺少 UI 钩子的 skip 不会被算成失败；
-     * - FILE_STALE 只是过期文件的展示兜底，直接返回 0，不参与失败统计。
+     * - FILE_STALE 只是过期文件的展示兜底，直接返回 0，不参与失败统计；
+     * - 数据超过 {@link #REPORT_TTL_MS} 没有新回传时按“未知”处理，返回 0，
+     *   避免旧会话长期误报横幅。
      */
     public static int failedFeatureCount(Context context) {
         if (context == null) {
@@ -315,9 +353,18 @@ public final class StatusProvider extends ContentProvider {
                 ? configStore.get(f.key, f.defaultEnabled) : f.defaultEnabled);
     }
 
-    /** 纯逻辑版本：FILE_STALE 一律 0；只统计已开启、已回传且明确失败的功能。 */
+    /** 纯逻辑版本：FILE_STALE 与过期数据一律 0；只统计明确失败的功能。 */
     static int failedFeatureCount(ReportState state, EnabledLookup lookup) {
+        return failedFeatureCount(state, lookup, System.currentTimeMillis());
+    }
+
+    /** 固定 now 的重载，便于 JVM 单测精确覆盖 TTL 边界。 */
+    static int failedFeatureCount(ReportState state, EnabledLookup lookup, long now) {
         if (state == null || state.source() == ReportState.Source.FILE_STALE) {
+            return 0;
+        }
+        if (!ReportProtocol.isFresh(state.updatedAt(), now, REPORT_TTL_MS)) {
+            // 没有时间戳或超过 TTL：目标进程可能已经退出，按“未知”处理。
             return 0;
         }
         int failed = 0;
@@ -329,18 +376,12 @@ public final class StatusProvider extends ContentProvider {
             if (!enabled) {
                 continue;
             }
-            String reg = state.reg(f.key);
-            String skip = state.skip(f.key);
-            long hit = state.hit(f.key);
-            long entry = state.entry(f.key);
-            boolean reported = (reg != null && !reg.isEmpty())
-                    || (skip != null && !skip.isEmpty())
-                    || hit > 0
-                    || entry > 0;
-            if (!reported) {
-                continue;
-            }
-            if (reg == null || reg.isEmpty() || (skip != null && !skip.isEmpty())) {
+            if (ReportProtocol.featureFailed(
+                    state.reg(f.key),
+                    state.skip(f.key),
+                    state.critical(f.key),
+                    state.hit(f.key),
+                    state.entry(f.key))) {
                 failed++;
             }
         }

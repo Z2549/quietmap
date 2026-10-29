@@ -19,19 +19,21 @@ public class ReportProtocolTest {
         assertTrue(ReportProtocol.validKey("hit.bg_msg_fetch"));
         assertTrue(ReportProtocol.validKey("entry.bg_msg_fetch"));
         assertTrue(ReportProtocol.validKey("skip.shake_h5"));
+        assertTrue(ReportProtocol.validKey("crit.shake_h5"));
     }
 
     @Test
-    public void validKeyAcceptsAll88GeneratedKeys() {
+    public void validKeyAcceptsAll110GeneratedKeys() {
         int count = 0;
         for (Feature f : Feature.values()) {
             assertTrue(ReportProtocol.validKey(ReportProtocol.PREFIX_REG + f.key));
             assertTrue(ReportProtocol.validKey(ReportProtocol.PREFIX_HIT + f.key));
             assertTrue(ReportProtocol.validKey(ReportProtocol.PREFIX_ENTRY + f.key));
             assertTrue(ReportProtocol.validKey(ReportProtocol.PREFIX_SKIP + f.key));
-            count += 4;
+            assertTrue(ReportProtocol.validKey(ReportProtocol.PREFIX_CRIT + f.key));
+            count += 5;
         }
-        assertEquals(88, count);
+        assertEquals(110, count);
     }
 
     @Test
@@ -66,6 +68,7 @@ public class ReportProtocolTest {
         assertTrue(ReportProtocol.isCountKey("entry.splash_gate"));
         assertFalse(ReportProtocol.isCountKey("reg.splash_gate"));
         assertFalse(ReportProtocol.isCountKey("skip.splash_gate"));
+        assertFalse("crit 是最新值覆盖，不是计数", ReportProtocol.isCountKey("crit.splash_gate"));
         assertFalse(ReportProtocol.isCountKey(null));
     }
 
@@ -83,6 +86,7 @@ public class ReportProtocolTest {
         assertFalse(ReportProtocol.validKey(ReportProtocol.PREFIX_HIT));
         assertFalse(ReportProtocol.validKey(ReportProtocol.PREFIX_ENTRY));
         assertFalse(ReportProtocol.validKey(ReportProtocol.PREFIX_SKIP));
+        assertFalse(ReportProtocol.validKey(ReportProtocol.PREFIX_CRIT));
         // 128 字符恰好等于上限但不在白名单；129 与超长输入同样拒绝。
         assertFalse(ReportProtocol.validKey("reg." + "a".repeat(ReportProtocol.MAX_KEY - 4)));
         assertFalse(ReportProtocol.validKey("reg." + "a".repeat(ReportProtocol.MAX_KEY)));
@@ -150,6 +154,70 @@ public class ReportProtocolTest {
     }
 
     @Test
+    public void isCriticalOnlyAcceptsExactOne() {
+        assertTrue(ReportProtocol.isCritical("1"));
+        assertFalse(ReportProtocol.isCritical("0"));
+        assertFalse(ReportProtocol.isCritical(""));
+        assertFalse(ReportProtocol.isCritical(null));
+        assertFalse(ReportProtocol.isCritical("true"));
+        assertFalse("带空白不是合法 crit 值", ReportProtocol.isCritical(" 1"));
+        assertFalse(ReportProtocol.isCritical("11"));
+    }
+
+    @Test
+    public void featureFailedCountsOnlyMissingMountOrCritical() {
+        // 有成功挂载 + 可选方法 skip：只展示，不失败。
+        assertFalse("可选锚点缺失不算失败",
+                ReportProtocol.featureFailed("canShowSplash", "方法未找到 x", false, 0, 0));
+        assertFalse(ReportProtocol.featureFailed("canShowSplash", null, false, 0, 0));
+        // 有回传但没有任何成功挂载点：失败（普通 skip 也会暴露这一点）。
+        assertTrue(ReportProtocol.featureFailed("", "类未找到 X", false, 0, 0));
+        assertTrue(ReportProtocol.featureFailed(null, "方法未找到 x", false, 0, 0));
+        // 只有 hit/entry 也属于已回传；没有 reg 时仍判定失败。
+        assertTrue(ReportProtocol.featureFailed("", null, false, 3, 0));
+        assertTrue(ReportProtocol.featureFailed(null, null, false, 0, 2));
+        // 主锚点整体失效：即使有 reg/命中，也必须计入失败。
+        assertTrue(ReportProtocol.featureFailed("canShowSplash", null, true, 5, 1));
+        // 完全没有回传：不参与失败统计。
+        assertFalse(ReportProtocol.featureFailed(null, null, false, 0, 0));
+        assertFalse(ReportProtocol.featureFailed("", "", false, 0, 0));
+    }
+
+    @Test
+    public void isFreshHonorsTtlAndClockRollback() {
+        long now = 1_000_000L;
+        long ttl = ReportProtocol.DEFAULT_TTL_MS;
+        assertFalse("从未回传不算新鲜", ReportProtocol.isFresh(0L, now, ttl));
+        assertTrue("恰好 TTL 仍算新鲜",
+                ReportProtocol.isFresh(now - ttl, now, ttl));
+        assertFalse("超过 TTL 视为过期",
+                ReportProtocol.isFresh(now - ttl - 1L, now, ttl));
+        assertTrue("时钟回拨按新鲜处理",
+                ReportProtocol.isFresh(now + 60_000L, now, ttl));
+        assertFalse("ttl <= 0 一律过期", ReportProtocol.isFresh(now, now, 0L));
+    }
+
+    @Test
+    public void isStaleSessionRejectsEarlierOrTimestamplessIncoming() {
+        assertFalse("还没有已存会话时不拒绝",
+                ReportProtocol.isStaleSession(null, "t1000-a"));
+        assertFalse(ReportProtocol.isStaleSession("", "t1000-a"));
+        assertTrue("更早启动的会话整批拒绝",
+                ReportProtocol.isStaleSession("t2000-a", "t1999-b"));
+        assertFalse("更晚启动的会话是新会话",
+                ReportProtocol.isStaleSession("t2000-a", "t2001-b"));
+        assertFalse("同一启动毫秒按不同实例处理（由 shouldResetSession 清空）",
+                ReportProtocol.isStaleSession("t2000-a", "t2000-b"));
+        assertTrue("旧客户端没有时间戳时视为迟到",
+                ReportProtocol.isStaleSession("t2000-a", "uuid-only"));
+        assertTrue(ReportProtocol.isStaleSession("t2000-a", null));
+        assertFalse("已存会话没有时间戳时无法排序，保持兼容",
+                ReportProtocol.isStaleSession("uuid-only", "t1999-b"));
+        assertFalse("全数字 UUID 不得被误读成时间戳",
+                ReportProtocol.isStaleSession("12345678-1234-5678", "t1-b"));
+    }
+
+    @Test
     public void valueChangedOnlyWhenActuallyWritten() {
         assertTrue(ReportProtocol.valueChanged("reg.a", null, "x"));
         assertFalse(ReportProtocol.valueChanged("reg.a", "x", "x"));
@@ -169,5 +237,9 @@ public class ReportProtocolTest {
         assertFalse("entry 溢出按非法处理", ReportProtocol.valueChanged(
                 "entry.a", "5", "9223372036854775808"));
         assertTrue(ReportProtocol.valueChanged("entry.a", null, "1"));
+        // crit 是最新值覆盖：空串必须能清掉旧的 "1"。
+        assertTrue(ReportProtocol.valueChanged("crit.a", "1", ""));
+        assertFalse(ReportProtocol.valueChanged("crit.a", "1", "1"));
+        assertTrue(ReportProtocol.valueChanged("crit.a", "", "1"));
     }
 }

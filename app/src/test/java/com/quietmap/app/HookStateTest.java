@@ -1,6 +1,7 @@
 package com.quietmap.app;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
@@ -57,7 +58,35 @@ public class HookStateTest {
         Feature f = Feature.H5_INSTALL_APK;
         assertEquals(0L, HookState.hitCount(f));
         assertEquals(0L, HookState.entryCount(f));
+        assertEquals(0, HookState.installedCount(f));
+        assertFalse(HookState.hasCriticalSkip(f));
         assertTrue("未触碰的 Feature 不应有标签", HookState.labels(f).isEmpty());
         assertNull("未触碰的 Feature 不应有 skip 原因", HookState.skipReason(f));
+    }
+
+    @Test
+    public void markNotFoundCriticalAlsoRecordsSkipAndCriticalFlag() {
+        Feature f = Feature.TRACK_SUPPRESS;
+        assertFalse(HookState.hasCriticalSkip(f));
+        HookState.markNotFound(f, "方法未找到 x");
+        assertFalse("普通 skip 不是 critical", HookState.hasCriticalSkip(f));
+
+        HookState.markNotFoundCritical(f, "无可用挂载点");
+        assertTrue(HookState.hasCriticalSkip(f));
+        assertEquals("无可用挂载点", HookState.skipReason(f));
+    }
+
+    @Test
+    public void installedCountTracksDistinctLabels() {
+        Feature f = Feature.H5_AD_LOG;
+        assertEquals(0, HookState.installedCount(f));
+        HookState.markNotFound(f, "类未找到 X");
+        assertEquals("只有 skip 没有成功挂载", 0, HookState.installedCount(f));
+
+        HookState.installed(f, "a");
+        HookState.installed(f, "a");
+        HookState.installed(f, "b");
+        assertEquals("labels 去重后计数", 2, HookState.installedCount(f));
+        assertEquals(2, HookState.labels(f).size());
     }
 }

@@ -103,7 +103,8 @@ public final class ReportState {
     /**
      * 文件与 prefs 按 key 合并，而不是整源二选一：
      * - 两个源都有的 key：hit/entry 计数取最大值；reg/skip 取较新源的值，
-     *   较新值为空时回退较旧的非空值（更完整）；
+     *   较新值为空时回退较旧的非空值（更完整）；crit 严格取较新源的值
+     *   （空串也必须覆盖旧值，否则旧 crit=1 清不掉）；
      * - 只有一个源有的 key：保留该值；
      * - 返回状态的 source/path/updatedAt/session 取时间较新的源。
      * - 文件 session 与 prefs（当前主进程）session 不一致时，文件整份忽略，
@@ -139,6 +140,10 @@ public final class ReportState {
                 merged.put(key, fromFile);
             } else if (ReportProtocol.isCountKey(key)) {
                 merged.put(key, newerCount(fromFile, fromProvider));
+            } else if (key.startsWith(ReportProtocol.PREFIX_CRIT)) {
+                // crit 必须完全按“最新值覆盖”：较新来源的空串代表功能已恢复，
+                // 不能像 reg/skip 那样回退旧的非空值，否则旧 crit=1 永远清不掉。
+                merged.put(key, fileNewer ? fromFile : fromProvider);
             } else if (fileNewer) {
                 merged.put(key, preferNonEmpty(fromFile, fromProvider));
             } else {
@@ -208,6 +213,16 @@ public final class ReportState {
 
     public String skip(String key) {
         return value(ReportProtocol.PREFIX_SKIP, key);
+    }
+
+    /** crit 原始值："1" 表示整体失效，空串/null 表示正常或未回传。 */
+    public String crit(String key) {
+        return value(ReportProtocol.PREFIX_CRIT, key);
+    }
+
+    /** 该功能是否没有任何成功安装的挂载点（主锚点整体失效）。 */
+    public boolean critical(String key) {
+        return ReportProtocol.isCritical(crit(key));
     }
 
     public long hit(String key) {

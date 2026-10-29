@@ -16,7 +16,8 @@ import java.util.List;
  * 主通道是 socket：目标进程把快照发到模块 App 的 ReportSocketServer，统一写入
  * {@link StatusProvider} 的 SharedPreferences（qm_report）。这里先读 prefs
  * （来源可能是 socket 或 Provider），再把文件作为**调试/旧系统兜底**按 key 合并：
- * 文件较新且有效时才优先，否则完全采用 prefs。
+ * 文件较新且有效时才优先，否则完全采用 prefs。reg/skip/crit 都参与合并，
+ * 其中 crit 只认最新值（空串用于清除旧的 overall-failure 标记）。
  *
  * Android 11+ 模块 App 通常读不到目标进程写的 Android/media 文件；读不到时只记
  * 日志，绝不影响 socket/Provider 数据。

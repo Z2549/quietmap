@@ -5,6 +5,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import com.quietmap.app.Feature;
+import com.quietmap.app.HookState;
 
 import org.junit.Test;
 
@@ -72,6 +73,39 @@ public class HooksTest {
     public void reportOnlyStartsInMainProcess() {
         assertTrue("主进程必须启动诊断回传", Hooks.shouldStartReport(true));
         assertFalse("子进程不得启动诊断回传", Hooks.shouldStartReport(false));
+    }
+
+    @Test
+    public void zeroInstallWithSkipBecomesCritical() {
+        Feature f = Feature.SHAKE_H5;
+        HookState.markNotFound(f, "类未找到 X");
+        assertFalse("单个 findClass 失败不应直接 critical",
+                HookState.hasCriticalSkip(f));
+
+        Hooks.markCriticalIfNoMount(f);
+        assertTrue("零成功挂载 + 有 skip 必须整体失效",
+                HookState.hasCriticalSkip(f));
+        assertEquals("无可用挂载点", HookState.skipReason(f));
+    }
+
+    @Test
+    public void installedFeatureWithOptionalSkipStaysNonCritical() {
+        Feature f = Feature.MSG_IMAGE_TEXT;
+        HookState.installed(f, "La8#run");
+        HookState.markNotFound(f, "可选方法未找到");
+
+        Hooks.markCriticalIfNoMount(f);
+        assertFalse("有成功挂载点时可选 skip 不计 critical",
+                HookState.hasCriticalSkip(f));
+        assertEquals(1, HookState.installedCount(f));
+    }
+
+    @Test
+    public void zeroInstallWithoutSkipDoesNotBecomeCritical() {
+        Feature f = Feature.BG_UTDID_UPLOAD;
+        // 未安装也未产生 skip（例如安装器尚未执行）：无法判断，不能标 critical。
+        Hooks.markCriticalIfNoMount(f);
+        assertFalse(HookState.hasCriticalSkip(f));
     }
 
     private static int countBlocked() {

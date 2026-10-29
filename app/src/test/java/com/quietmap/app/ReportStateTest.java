@@ -277,6 +277,52 @@ public class ReportStateTest {
         assertEquals("file", fileWins.reg("splash_gate"));
     }
 
+    @Test
+    public void critIsSanitizedAndReadable() {
+        Map<String, String> data = new TreeMap<>();
+        data.put("crit.splash_gate", "1");
+        data.put("crit.bg_msg_fetch", "");
+        data.put("crit.shake_h5", "yes");
+        ReportState state = ReportState.fromProvider(data, 1L);
+        assertEquals("1", state.crit("splash_gate"));
+        assertTrue(state.critical("splash_gate"));
+        assertEquals("", state.crit("bg_msg_fetch"));
+        assertFalse(state.critical("bg_msg_fetch"));
+        assertFalse("非 \"1\" 一律按非 critical 处理", state.critical("shake_h5"));
+        assertNull(state.crit("msg_center"));
+    }
+
+    @Test
+    public void pickUsesNewestCritWithoutFallingBackToOldOne() {
+        Map<String, String> fileData = Collections.singletonMap(
+                "crit.splash_gate", "");
+        Map<String, String> providerData = Collections.singletonMap(
+                "crit.splash_gate", "1");
+
+        ReportState provider = ReportState.fromProvider(providerData, 1_000L);
+        ReportState recoveredByFile = ReportState.pick(
+                entry(2_000L, 2_000L, fileData), provider);
+        assertFalse("较新文件的空 crit 必须清掉旧 crit=1",
+                recoveredByFile.critical("splash_gate"));
+
+        ReportState newerProvider = ReportState.fromProvider(providerData, 3_000L);
+        ReportState picked = ReportState.pick(
+                entry(2_000L, 2_000L, fileData), newerProvider);
+        assertTrue("较旧文件的空 crit 不能覆盖较新的 crit=1",
+                picked.critical("splash_gate"));
+    }
+
+    @Test
+    public void pickKeepsCritPresentInOnlyOneSource() {
+        ReportState provider = ReportState.fromProvider(
+                Collections.singletonMap("reg.splash_gate", "x"), 2_000L);
+        ReportState picked = ReportState.pick(
+                entry(1_000L, 1_000L,
+                        Collections.singletonMap("crit.splash_gate", "1")), provider);
+        assertTrue("只有文件带 crit 时保留该值",
+                picked.critical("splash_gate"));
+    }
+
     private static ReportFileStore.Entry entry(long mtime, long updatedAt,
                                                String key, String value) {
         return entry(mtime, updatedAt, Collections.singletonMap(key, value));

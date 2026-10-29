@@ -5,10 +5,18 @@ import java.util.HashSet;
 import java.util.Set;
 
 /**
- * 报表通道的纯 Java 协议逻辑：键白名单、取值长度、命中/入口计数合并。
+ * 报表通道的纯 Java 协议逻辑：键白名单、取值长度、命中/入口计数合并、
+ * 失败判定、新鲜度与会话先后判定。
  *
  * 不依赖任何 android.*，可直接在 JVM 单测（见 ReportProtocolTest）；
  * StatusProvider 只做 Binder / SharedPreferences 胶水，校验规则集中在这里。
+ *
+ * 统一诊断语义（与 QB 对齐）：
+ * - reg. 有值表示至少一个挂载点安装成功；
+ * - skip. 只描述可选锚点缺失，不再单独计入失败；
+ * - crit.="1" 表示该功能没有任何成功安装的挂载点，整体失效；
+ * - 已启用、有回传且（reg 为空或 crit=1）才计入失败横幅；
+ * - meta.updated_at 超过 {@link #DEFAULT_TTL_MS} 视为未知，失败计数按 0。
  */
 public final class ReportProtocol {
 
@@ -16,6 +24,14 @@ public final class ReportProtocol {
     public static final String PREFIX_HIT = "hit.";
     public static final String PREFIX_ENTRY = "entry.";
     public static final String PREFIX_SKIP = "skip.";
+    /**
+     * 整体失效标记：值为 "1" 表示该功能没有任何成功安装的挂载点
+     * （主锚点/类整体缺失）。可选方法缺失仍只写普通 skip，不计入失败横幅。
+     */
+    public static final String PREFIX_CRIT = "crit.";
+
+    /** 超过 10 分钟没有新回传就视为过期，失败计数按“未知”处理（0）。 */
+    public static final long DEFAULT_TTL_MS = 10 * 60 * 1000L;
 
     /** 目标进程一次运行的标识；Provider 用它判断是否需要清理旧会话数据。 */
     public static final String PREFS_UPDATED_AT_KEY = "meta.updated_at";
@@ -35,6 +51,39 @@ public final class ReportProtocol {
                 && incomingSession != null
                 && !incomingSession.isEmpty()
                 && !incomingSession.equals(storedSession);
+    }
+
+    /**
+     * 迟到的旧会话写入：已存会话带启动时间，而本次会话启动更早（或没有时间戳）
+     * 时整批丢弃，不能覆盖新会话的 reg/skip/crit。
+     *
+     * QM 的 session 由 Report 生成，格式为 {@code t<启动毫秒>-<uuid>}；旧版本的
+     * 纯 UUID 无法排序，按兼容处理返回 false（由 {@link #shouldResetSession}
+     * 按“不同会话”清空旧数据）。
+     */
+    public static boolean isStaleSession(String storedSession, String incomingSession) {
+        long stored = sessionStart(storedSession);
+        if (stored <= 0L) {
+            return false;
+        }
+        long incoming = sessionStart(incomingSession);
+        return incoming <= 0L || incoming < stored;
+    }
+
+    /** 解析 session 里的进程启动时间；非 {@code t<millis>-...} 格式返回 0。 */
+    private static long sessionStart(String session) {
+        if (session == null || session.length() < 3 || session.charAt(0) != 't') {
+            return 0L;
+        }
+        int dash = session.indexOf('-');
+        if (dash <= 1) {
+            return 0L;
+        }
+        try {
+            return Long.parseLong(session.substring(1, dash));
+        } catch (NumberFormatException e) {
+            return 0L;
+        }
     }
 
     /**
@@ -66,8 +115,8 @@ public final class ReportProtocol {
 
     /**
      * 进程级写入白名单：主进程可写全部键；非主进程只允许合并 hit./entry.，
-     * reg./skip. 一律丢弃。Report 现在只在主进程启动，这里兜住旧版本/其他
-     * 路径仍在回传的子进程数据，避免“子进程缺少 UI 钩子”的 skip 被
+     * reg./skip./crit. 一律丢弃。Report 现在只在主进程启动，这里兜住旧版本/
+     * 其他路径仍在回传的子进程数据，避免“子进程缺少 UI 钩子”的 skip 被
      * failedFeatureCount 误算成失败。
      */
     public static boolean acceptFromProcess(boolean mainProcess, String key) {
@@ -77,7 +126,7 @@ public final class ReportProtocol {
     public static final int MAX_KEY = 128;
     public static final int MAX_VALUE = 256;
 
-    /** 22 个 Feature × 4 个前缀 = 88 个合法键，构建后不可变。 */
+    /** 22 个 Feature × 5 个前缀（reg/hit/entry/skip/crit）= 110 个合法键。 */
     private static final Set<String> ALLOWED_KEYS = buildAllowedKeys();
 
     private ReportProtocol() {
@@ -90,6 +139,7 @@ public final class ReportProtocol {
             keys.add(PREFIX_HIT + f.key);
             keys.add(PREFIX_ENTRY + f.key);
             keys.add(PREFIX_SKIP + f.key);
+            keys.add(PREFIX_CRIT + f.key);
         }
         return Collections.unmodifiableSet(keys);
     }
@@ -128,5 +178,48 @@ public final class ReportProtocol {
         long p = prev < 0 ? 0 : prev;
         long n = next < 0 ? 0 : next;
         return Math.max(p, n);
+    }
+
+    /** crit 值固定为 "1"；空串/缺失/其他文本都按“非 critical”处理。 */
+    public static boolean isCritical(String value) {
+        return "1".equals(value);
+    }
+
+    /**
+     * 已启用功能是否有回传：reg/skip 非空、critical 标记或 hit/entry > 0。
+     * 没有回传的功能不参与失败统计，避免刚安装或目标应用未启动时误报。
+     */
+    public static boolean reported(String reg, String skip, boolean critical,
+                                   long hit, long entry) {
+        return !isEmpty(reg) || !isEmpty(skip) || critical || hit > 0 || entry > 0;
+    }
+
+    /**
+     * 已启用且有回传的功能是否明确失败：reg 为空（没有任何成功挂载点）
+     * 或 crit=1（主锚点整体失效）。
+     *
+     * 普通 skip 属于可选方法缺失，只用于诊断页展示，不再计入失败横幅。
+     */
+    public static boolean featureFailed(String reg, String skip, boolean critical,
+                                        long hit, long entry) {
+        if (!reported(reg, skip, critical, hit, entry)) {
+            return false;
+        }
+        return isEmpty(reg) || critical;
+    }
+
+    /**
+     * 回传数据是否仍新鲜。updatedAt <= 0 表示从未回传或旧版本没有时间戳；
+     * now < updatedAt（设备时钟回拨）按新鲜处理，避免误伤。
+     */
+    public static boolean isFresh(long updatedAt, long now, long ttlMs) {
+        if (updatedAt <= 0L || ttlMs <= 0L) {
+            return false;
+        }
+        return now - updatedAt <= ttlMs;
+    }
+
+    private static boolean isEmpty(String s) {
+        return s == null || s.isEmpty();
     }
 }

@@ -202,7 +202,7 @@ public class DiagnosticsFragment extends PreferenceFragmentCompat {
         return p;
     }
 
-    /** 单功能状态：registered · entry N · hit N · skip 原因；无数据用“—”。 */
+    /** 单功能状态：registered · entry N · hit N · skip 原因 · critical；无数据用“—”。 */
     private String summary(Feature f, ReportState state) {
         if (f.blocked()) {
             return getString(R.string.diag_blocked, f.blockedReason);
@@ -211,12 +211,13 @@ public class DiagnosticsFragment extends PreferenceFragmentCompat {
         long entry = state.entry(f.key);
         long hit = state.hit(f.key);
         String skip = state.skip(f.key);
+        boolean critical = state.critical(f.key);
 
         boolean hasReg = reg != null && !reg.isEmpty();
         boolean hasSkip = skip != null && !skip.isEmpty();
         boolean hasEntry = entry > 0;
         boolean hasHit = hit > 0;
-        if (!hasReg && !hasSkip && !hasEntry && !hasHit) {
+        if (!hasReg && !hasSkip && !hasEntry && !hasHit && !critical) {
             return getString(R.string.diag_no_data);
         }
 
@@ -226,6 +227,9 @@ public class DiagnosticsFragment extends PreferenceFragmentCompat {
         sb.append(" · entry ").append(entry);
         sb.append(" · hit ").append(hit);
         sb.append(" · skip ").append(hasSkip ? skip : dash);
+        if (critical) {
+            sb.append(" · critical");
+        }
         return sb.toString();
     }
 
@@ -241,7 +245,8 @@ public class DiagnosticsFragment extends PreferenceFragmentCompat {
         return (reg != null && !reg.isEmpty())
                 || (skip != null && !skip.isEmpty())
                 || entry > 0
-                || hit > 0;
+                || hit > 0
+                || state.critical(f.key);
     }
 
     private String headerSummary(ReportState state) {

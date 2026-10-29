@@ -112,14 +112,17 @@ public class ReportFileStoreTest {
         data.put("entry.bg_msg_fetch", "4");
         data.put("reg.splash_gate", "canShowSplash");
         data.put("skip.splash_gate", "ok");
+        data.put("crit.splash_gate", "1");
         File file = write("filter.json", ReportSnapshot.toJson(now, data));
 
         ReportFileStore.Entry entry = ReportFileStore.read(
                 file, now, ReportFileStore.MAX_AGE_MS);
         assertNotNull(entry);
-        assertEquals(3, entry.snapshot.data().size());
+        assertEquals(4, entry.snapshot.data().size());
         assertEquals("canShowSplash", entry.snapshot.data().get("reg.splash_gate"));
         assertEquals("ok", entry.snapshot.data().get("skip.splash_gate"));
+        assertEquals("crit 必须通过白名单", "1",
+                entry.snapshot.data().get("crit.splash_gate"));
         assertEquals("4", entry.snapshot.data().get("entry.bg_msg_fetch"));
     }
 

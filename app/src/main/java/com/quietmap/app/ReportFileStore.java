@@ -131,7 +131,8 @@ public final class ReportFileStore {
     }
 
     /**
-     * 只保留 ReportProtocol 白名单内的键与合法值；hit/entry 必须是可解析整数。
+     * 只保留 ReportProtocol 白名单内的键与合法值；hit/entry 必须是可解析整数，
+     * reg/skip/crit 保持原文本（crit 只有 "1" 参与失败判定）。
      * 文件可能被其他进程/旧版本写过，读取侧不能信任其内容。
      */
     public static Map<String, String> sanitize(Map<String, String> data) {

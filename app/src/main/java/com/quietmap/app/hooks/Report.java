@@ -20,7 +20,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 目标进程 → 模块 App 的诊断回传（registered / entry N / hit N / skip）。
+ * 目标进程 → 模块 App 的诊断回传（registered / entry N / hit N / skip / critical）。
  *
  * HyperOS 上 ContentResolver.call 抛 Unknown authority，Provider 不可用；
  * Android 11+ 模块 App 也读不到目标进程写的 Android/media 文件。因此主通道改为
@@ -40,9 +40,10 @@ import java.util.concurrent.TimeUnit;
  * 子进程只承担后台组件，继续上报只会用不完整的 reg/skip 污染诊断；
  * StatusProvider 对旧版本子进程回传的 reg./skip. 也会忽略，只合并计数键。
  *
- * session：主进程每次启动生成一个 UUID，随快照一起写入。同一 session
- * 的旧文件才合并，不同 session 直接替换，避免旧 skip/reg 被盖上当前时间戳。
- * 主进程会把 session/是否主进程一并回传，供服务端在新会话开始时清理旧数据。
+ * session：主进程每次启动生成 "t&lt;启动毫秒&gt;-&lt;uuid&gt;"，随快照一起写入。
+ * 同一 session 的旧文件才合并，不同 session 直接替换；StatusProvider 还会
+ * 用启动时间拒绝迟到的旧会话，避免旧 skip/reg 被盖上当前时间戳。主进程会把
+ * session/是否主进程一并回传，供服务端在新会话开始时清理旧数据。
  */
 final class Report {
 
@@ -59,8 +60,13 @@ final class Report {
     /** 快照变化后的常规文件写入最小间隔，避免命中计数每 3 秒刷盘。 */
     static final long FILE_MIN_INTERVAL_MS = 45_000L;
 
-    /** 本主进程运行的唯一标识；跨进程写同一文件时用于判断是否合并。 */
-    static final String SESSION = UUID.randomUUID().toString();
+    /**
+     * 本主进程运行的唯一标识；跨进程写同一文件时用于判断是否合并。
+     * 前缀 "t&lt;启动毫秒&gt;-" 让 StatusProvider 能识别迟到的旧会话并整批拒绝；
+     * 旧版本的纯 UUID 没有时间戳，仍按“无法排序”兼容处理。
+     */
+    static final String SESSION = "t" + System.currentTimeMillis() + "-"
+            + UUID.randomUUID();
 
     private static volatile boolean sStarted;
     private static volatile Context sContext;
@@ -280,16 +286,18 @@ final class Report {
     }
 
     /**
-     * HookState 快照 → 平铺的 key/value（key 用 reg./hit./entry./skip. 前缀，
-     * value 截断到 256）。
+     * HookState 快照 → 平铺的 key/value（key 用 reg./hit./entry./skip./crit.
+     * 前缀，value 截断到 256）。
+     *
+     * reg/skip/crit 对每个 touched Feature 都必须发送，缺失时发空串：StatusProvider
+     * 用最新值覆盖旧值，只有空串才能清掉上一次目标进程会话遗留的 skip/crit。
+     * hit/entry 仍只在 >0 时发送，由 StatusProvider 取历史最大值，不会被空值覆盖。
      */
     static Map<String, String> snapshot() {
         Map<String, String> out = new TreeMap<>();
         for (Feature f : HookState.touched()) {
-            List<String> labels = HookState.labels(f);
-            if (!labels.isEmpty()) {
-                out.put(StatusProvider.PREFIX_REG + f.key, truncate(join(labels)));
-            }
+            out.put(StatusProvider.PREFIX_REG + f.key,
+                    truncate(join(HookState.labels(f))));
             long hits = HookState.hitCount(f);
             if (hits > 0) {
                 out.put(StatusProvider.PREFIX_HIT + f.key, String.valueOf(hits));
@@ -298,10 +306,10 @@ final class Report {
             if (entries > 0) {
                 out.put(StatusProvider.PREFIX_ENTRY + f.key, String.valueOf(entries));
             }
-            String skip = HookState.skipReason(f);
-            if (skip != null) {
-                out.put(StatusProvider.PREFIX_SKIP + f.key, truncate(skip));
-            }
+            out.put(StatusProvider.PREFIX_SKIP + f.key,
+                    truncate(HookState.skipReason(f)));
+            out.put(StatusProvider.PREFIX_CRIT + f.key,
+                    HookState.hasCriticalSkip(f) ? "1" : "");
         }
         return out;
     }

@@ -86,6 +86,31 @@ public class ReportTest {
     }
 
     @Test
+    public void snapshotSendsCriticalWhenNothingInstalled() {
+        Feature f = Feature.SPLASH_REQUEST;
+        HookState.markNotFoundCritical(f, "无可用挂载点");
+
+        Map<String, String> batch = Report.snapshot();
+        assertEquals("1", batch.get("crit." + f.key));
+        assertEquals("没有成功挂载点时 reg 必须是空串",
+                "", batch.get("reg." + f.key));
+        assertEquals("无可用挂载点", batch.get("skip." + f.key));
+    }
+
+    @Test
+    public void snapshotSendsEmptySkipAndCritToClearOldValues() {
+        Feature f = Feature.SPLASH_SHAKE;
+        HookState.installed(f, "canShowSplash");
+
+        Map<String, String> batch = Report.snapshot();
+        assertEquals("canShowSplash", batch.get("reg." + f.key));
+        assertEquals("本次会话没有 skip 时必须发送空串清旧值",
+                "", batch.get("skip." + f.key));
+        assertEquals("非 critical 功能必须发送空串清旧 crit",
+                "", batch.get("crit." + f.key));
+    }
+
+    @Test
     public void snapshotOmitsZeroEntryCount() {
         Feature f = Feature.HOME_BANNER;
         HookState.installed(f, "sendList");

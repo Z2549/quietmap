@@ -85,6 +85,35 @@ public class ReportFileSinkTest {
     }
 
     @Test
+    public void sameSessionMergesCritWithLatestValue() throws Exception {
+        File target = new File(folder.getRoot(), ReportPaths.FILE_NAME);
+        long now = System.currentTimeMillis();
+        Map<String, String> first = new TreeMap<>();
+        first.put("crit.splash_gate", "1");
+        first.put("reg.splash_gate", "canShowSplash");
+        ReportFileSink.writeOne(target, first, now, "session-1", "t1");
+
+        Map<String, String> recovered = new TreeMap<>();
+        recovered.put("crit.splash_gate", "");
+        ReportFileSink.writeOne(target, recovered, now, "session-1", "t2");
+        ReportFileStore.Entry merged = ReportFileStore.readForMerge(target);
+        assertNotNull(merged);
+        assertEquals("同一 session 内 crit 必须用最新空串覆盖旧的 1",
+                "", merged.snapshot.data().get("crit.splash_gate"));
+        assertEquals("canShowSplash",
+                merged.snapshot.data().get("reg.splash_gate"));
+
+        // 不同 session 直接替换：旧会话的 crit 不得残留。
+        Map<String, String> nextSession = Collections.singletonMap(
+                "reg.bg_msg_fetch", "fresh");
+        ReportFileSink.writeOne(target, nextSession, now, "session-2", "t3");
+        ReportFileStore.Entry replaced = ReportFileStore.readForMerge(target);
+        assertNotNull(replaced);
+        assertNull("旧 session 的 crit 不能被保留",
+                replaced.snapshot.data().get("crit.splash_gate"));
+    }
+
+    @Test
     public void verifyReadableRejectsMissingDirectoryAndEmptyFile() throws Exception {
         assertFalse(ReportFileSink.verifyReadable(null));
         assertFalse(ReportFileSink.verifyReadable(

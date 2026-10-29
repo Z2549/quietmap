@@ -136,6 +136,22 @@ public final class Hooks {
         } catch (Throwable t) {
             module.log(Log.ERROR, TAG, f.id + " install threw", t);
             HookState.markNotFound(f, "安装异常");
+        } finally {
+            markCriticalIfNoMount(f);
+        }
+    }
+
+    /**
+     * 安装收尾的统一判定：该 Feature 没有任何成功安装的挂载点、且安装过程中
+     * 至少产生过一条 skip，才标记为整体失效（crit=1）。
+     *
+     * 不直接把 HookKit.findClass 的失败改成 critical：QM 很多类/方法是可选的，
+     * 单个 findClass 失败不代表功能不可用；只有“零成功挂载”才是整体失效。
+     * 包内可见，供 HooksTest 在 JVM 上直接验证。
+     */
+    static void markCriticalIfNoMount(Feature f) {
+        if (HookState.installedCount(f) == 0 && HookState.skipReason(f) != null) {
+            HookState.markNotFoundCritical(f, "无可用挂载点");
         }
     }
 }

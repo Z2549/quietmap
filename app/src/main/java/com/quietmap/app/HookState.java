@@ -9,7 +9,7 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * 目标进程内的诊断状态：每个钩子的注册标签、命中次数、跳过原因。
+ * 目标进程内的诊断状态：每个钩子的注册标签、命中次数、跳过原因与整体失效标记。
  *
  * 真正带细节的日志由 HookKit 打进 logcat（tag QuietMap）；这里只存计数快照，
  * 由 hooks 包的 Report 定期回传给模块 App 的 StatusProvider，供设置页诊断卡展示。
@@ -25,6 +25,8 @@ public final class HookState {
 
     private static final class State {
         final Set<String> labels = ConcurrentHashMap.newKeySet();
+        /** 主锚点整体失效的原因集合；非空即表示该功能没有任何可用挂载点。 */
+        final Set<String> criticalSkips = ConcurrentHashMap.newKeySet();
         final AtomicLong hits = new AtomicLong();
         final AtomicLong entries = new AtomicLong();
         volatile String skip;
@@ -52,8 +54,30 @@ public final class HookState {
         state(f).labels.add(label);
     }
 
+    /**
+     * 可选锚点缺失：只记录 skip 供诊断页展示，不计入失败横幅。
+     * 方法改名/签名变化、可选类缺失都属于这一类。
+     */
     public static void markNotFound(Feature f, String reason) {
         state(f).markSkip(reason);
+    }
+
+    /**
+     * 主锚点整体缺失（该 Feature 没有任何成功安装的挂载点）：除记录 skip 外
+     * 再打上 critical 标记，让 ReportProtocol.featureFailed 把功能计入失败统计。
+     */
+    public static void markNotFoundCritical(Feature f, String reason) {
+        State s = state(f);
+        s.markSkip(reason);
+        if (reason != null) {
+            s.criticalSkips.add(reason);
+        }
+    }
+
+    /** 本会话是否出现过主锚点整体失效。 */
+    public static boolean hasCriticalSkip(Feature f) {
+        State s = STATES.get(f);
+        return s != null && !s.criticalSkips.isEmpty();
     }
 
     /** 命中计数 +1，返回累加后的次数（供 HookKit 做日志采样）。 */
@@ -74,6 +98,12 @@ public final class HookState {
 
     public static List<Feature> touched() {
         return new ArrayList<>(STATES.keySet());
+    }
+
+    /** 成功安装的挂载点数量（labels 去重后的条目数）；0 表示整体未挂载。 */
+    public static int installedCount(Feature f) {
+        State s = STATES.get(f);
+        return s == null ? 0 : s.labels.size();
     }
 
     public static List<String> labels(Feature f) {

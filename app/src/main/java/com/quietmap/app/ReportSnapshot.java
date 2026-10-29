@@ -197,7 +197,8 @@ public final class ReportSnapshot {
 
     /**
      * 跨进程写同一文件时的合并规则，与 StatusProvider 的 prefs 语义一致：
-     * hit/entry 取历史最大值，reg/skip 由本次写入覆盖，未出现在本次快照里的键保留。
+     * hit/entry 取历史最大值，reg/skip/crit 由本次写入覆盖（空串也覆盖），
+     * 未出现在本次快照里的键保留。
      */
     public static Map<String, String> merge(Map<String, String> existing,
                                             Map<String, String> incoming) {
